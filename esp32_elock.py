@@ -1,6 +1,13 @@
 ############################
 # date: 2025-02-25 00:00 #
 #
+# Core lock controller. Runs on ESP32 with MicroPython.
+#
+# Data flow:
+#   GM60 scanner → UART → serialRead() → testHMAC() → tuneandUnlock() → PWM → door
+#   BLE phone     → BLE  → ble_elock   → _ble_monitor()→ tuneandUnlock() → PWM → door
+#   Door unlock event → ioWrite() → TCP → camera
+#
 import gc; gc.collect()
 from _utils import calculatecrc16
 import network
@@ -20,7 +27,7 @@ from _cfg_serial import (
 )
 from _cfg_network import NET_SSID, NET_PASSWD, NET_HIDDEN
 from _utils import TAIL, WRITEZ, blue, dbg, green, red, tb, ROK,free
-from config import NVS_ACTIVE, PORTS_ACTIVE, SERIAL_ACTIVE, TUNE_ACTIVE, WIFI_ACTIVE
+from config import BLE_ACTIVE, NVS_ACTIVE, PORTS_ACTIVE, SERIAL_ACTIVE, TUNE_ACTIVE, WIFI_ACTIVE
 from micropython import const
 
 #########################################
@@ -44,7 +51,7 @@ gc.collect()
 
 async def startNIC(
     wifi_mode, _SSID, _PASSWD, _HIDDEN=False
-) -> None:  # Initiate NIC as AP
+) -> None:  # Connect or start the network interface
     if not WIFI_ACTIVE:
         dbg("No Wi-Fi")
         return
@@ -55,6 +62,7 @@ async def startNIC(
         await asyncio.sleep_ms(10)
         nic.disconnect()
     if nic.active():
+        # Toggle active state to clear any stale connection from a previous soft reset
         nic.active(False)
         await asyncio.sleep_ms(10)
         nic.active(True)
@@ -92,7 +100,7 @@ async def startNetwork():
     waitforWifi.set()
 
 
-async def networkCheck():  # Daemon
+async def networkCheck():  # Daemon: logs WiFi drops and updates LED feedback
     await waitforWifi.wait()  # wait for Wifi
     nic = network.WLAN(network.STA_IF)
     stat: bool = False
@@ -112,6 +120,7 @@ async def networkCheck():  # Daemon
 
 
 async def ioWrite(mssg: str | bytes, target_ip: str = None):
+    # Notify a camera that a door was opened so it can timestamp/record the event.
     if not WIFI_ACTIVE:
         dbg("No Wi-Fi")
         return
@@ -171,7 +180,11 @@ async def ioWrite(mssg: str | bytes, target_ip: str = None):
 
 
 # TODO - Change into ringbuffer (save them cycles :P)
-async def checkQRBuffer(buff):  # Check buffer for used QR-Code
+async def checkQRBuffer(buff):
+    # In-memory replay protection: reject a QR code whose HMAC hash we've seen recently.
+    # _buffer holds the last 40 accepted hashes; older entries are rotated out.
+    # This catches rapid replay attempts that arrive within the same session.
+    # NVS timestamp checking (in testHMAC) handles cross-session replays.
     if buff in _buffer:
         return False
     for c in range(len(_buffer) - 1):
@@ -181,6 +194,9 @@ async def checkQRBuffer(buff):  # Check buffer for used QR-Code
 
 
 async def gmBlink(mode=0b111, _blink_time: int = 1000, _reset: bool = True) -> None:
+    # Visual feedback via the GM60's built-in RGB LEDs.
+    # mode bits: R=bit2, G=bit1, B=bit0  (e.g. 0b010 = green, 0b100 = red)
+    # _reset=False leaves the scanner in blink mode (used for "door held open" indication).
     if abortBlink.is_set():
         abortBlink.clear()
     dbg("gmBlink - Entered")
@@ -254,13 +270,19 @@ async def serialWait() -> bytes: # Wait for all data to be recived
 
 
 async def serialRead():
+    # GM60 output frame format for a scanned code:
+    #   byte[0]   = 0x04  (data frame marker)
+    #   byte[1:3] = payload length as big-endian uint16
+    #   byte[3:]  = PRE + qr_content + SUF
+    #   last 4    = CRC-16 as 2 ASCII hex chars (e.g. b'1A2B')
+    #   last byte = 0x0A (newline / frame end)
     if not SERIAL_ACTIVE: dbg('Serial is not active!'); return
-    dbg('Starting: serialRead','>> ')
+    dbg('Starting: serialRead', '>> ')
     while True:
         dbg('Serial await', '>> ')
-        data:bytes = await sRead.read(4)
-        data+=await loop.create_task(serialWait())
-        if data[:3]==ROK:
+        data: bytes = await sRead.read(4)
+        data += await loop.create_task(serialWait())
+        if data[:3] == ROK:
             waitforSerial.set()
             continue
         elif data[0]==0x04:
@@ -308,7 +330,19 @@ async def wZone(
     await waitforSerial.wait()
 
 
-async def testHMAC(inByte: bytes = b"") -> None:  # TODO: more precise decoder!
+async def testHMAC(inByte: bytes = b"") -> None:
+    # Entry point for QR code validation. Expected QR content format:
+    #   YYYYMMDDHHMMSS[/pPORT,PORT][/uUNIT][/iID][/c]::BASE64_HMAC
+    #
+    # Examples:
+    #   20261231235959/p1::ABC123==          (port 1 only)
+    #   20261231235959/p1,2/u5/i42::ABC123== (ports 1+2, unit 5, id 42)
+    #   20261231235959/c::ABC123==           (admin code)
+    #
+    # /p = ports to unlock (comma-separated)
+    # /u = unit identifier (which door unit this code is for)
+    # /i = user/access ID
+    # /c = admin flag (no physical unlock, for management operations)
     _inStr: str = "".join((chr(x) for x in inByte))  # Prevent unicode error, hack?
     blue("testHMAC", " >> ")
     if not "::" in inByte:
@@ -400,16 +434,19 @@ async def testHMAC(inByte: bytes = b"") -> None:  # TODO: more precise decoder!
             from esp32 import NVS
         nvs_date = NVS("date")
         del NVS;gc.collect()
-        tcount: int = time.mktime(tdate)
+        tcount: int    = time.mktime(tdate)
         nvs_count: int = nvs_date.get_i32("last")
         time_diff: int = tcount - nvs_count
         green(f"Time diff: {time_diff}")
 
         if time_diff <= 0:
+            # Code timestamp is not newer than the last accepted code → replay attempt
             red("OLD QR-CODE")
             loop.create_task(gmBlink(0b100, HOLD_ERROR_BLINK_TIME_MS, True))
             return
         if time_diff > 60 and NVS_ACTIVE:
+            # Only update NVS if the new timestamp is more than 60 s ahead.
+            # This avoids EEPROM write wear when the same person scans rapidly.
             nvs_date.set_i32("last", tcount)
             nvs_date.commit()
             green("NVS-DATE UPPDATED")
@@ -463,7 +500,9 @@ async def testHMAC(inByte: bytes = b"") -> None:  # TODO: more precise decoder!
 # TODO: Clean up _PORTS before entering loop
 # TODO: do the todo dooo... test for numeric portvalues
 async def tuneandUnlock(_PORTS) -> None:
-    #     if runningUnlock.is_set(): print("\n\n\n Error, should not be active here")
+    # Drives the electromagnetic door strike via PWM.
+    # Kick-then-hold pattern: a short high-duty burst pulls the solenoid in,
+    # then a lower duty holds it engaged without overheating the coil.
     runningUnlock.set()
     if not PORTS_ACTIVE:
         dbg("Ports no active!")
@@ -600,7 +639,9 @@ if not WIFI_ACTIVE:
     asyncio.create_task(colors_normal())
 
 
-if PORTS_ACTIVE:  # Ports P1=18, P2=19, P3=4 || duty is 10bit // duty_u16 is 16bit
+if PORTS_ACTIVE:
+    # GPIO 18 → Port 1 (P1), GPIO 19 → Port 2 (P2), GPIO 4 → Port 3 (P3)
+    # duty is 10-bit (0–1023). Pins connect to the gate of a MOSFET driving the strike coil.
     print(" PORTS", end="")
     dbg("Ports-Init")
     from machine import PWM, Pin
@@ -634,6 +675,25 @@ if WIFI_ACTIVE:
     dbg("Wifi-Init")
     loop.create_task(startNetwork())
     loop.create_task(networkCheck())
+
+if BLE_ACTIVE:
+    print(" BLE", end="")
+    dbg("BLE-Init")
+    from ble_elock import BLELock
+    _ble_lock = BLELock()
+    loop.create_task(_ble_lock.task())
+
+    async def _ble_monitor():
+        # Bridge between the BLE auth result and the existing unlock/blink logic.
+        # Runs as a daemon; wakes only when BLELock signals a verified unlock.
+        while True:
+            await _ble_lock.unlock_flag.wait()
+            ports = _ble_lock.unlock_ports[:]
+            _ble_lock.unlock_ports.clear()
+            loop.create_task(gmBlink(0b010, HOLD_BLINK_TIME_MS, True))
+            loop.create_task(tuneandUnlock(ports))
+
+    loop.create_task(_ble_monitor())
 
 print("\nEnter Main Loop:\nAll ok!\n")
 while True:
