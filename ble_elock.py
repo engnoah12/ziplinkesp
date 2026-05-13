@@ -28,6 +28,7 @@ from micropython import const
 from _cfg_ble import (
     BLE_DEVICE_NAME, BLE_ADV_INTERVAL_US, BLE_CONN_TIMEOUT_S,
     BLE_SVC_UUID, BLE_CHR_CHALLENGE, BLE_CHR_RESPONSE,
+    BLE_MAX_FAIL, BLE_LOCKOUT_S,
 )
 from _utils import dbg, green, red
 
@@ -65,9 +66,11 @@ class BLELock:
         # gatts_register_services returns handle tuples matching the service definition layout
         ((self._h_challenge, self._h_response),) = self._ble.gatts_register_services((_SERVICE,))
 
-        self._conn    = None   # Active connection handle, None when idle
-        self._nonce   = None   # Current challenge bytes, cleared on disconnect
-        self._payload = None   # Raw bytes written by phone, consumed by task()
+        self._conn       = None   # Active connection handle, None when idle
+        self._nonce      = None   # Current challenge bytes, cleared on disconnect
+        self._payload    = None   # Raw bytes written by phone, consumed by task()
+        self._fail_count = 0      # Failed HMAC attempts for the current connection
+        self._locked_out = False  # True while advertising is paused after too many failures
 
         # ThreadSafeFlag is safe to set() from the BLE IRQ context (outside asyncio).
         # _connect_flag: fired when a phone connects, starts the timeout window.
@@ -85,7 +88,8 @@ class BLELock:
     def _irq(self, event, data):
         if event == _IRQ_CENTRAL_CONNECT:
             conn_handle, _, _ = data
-            self._conn  = conn_handle
+            self._conn       = conn_handle
+            self._fail_count = 0  # Fresh connection → reset the failure counter
             # Generate a fresh nonce for this session. os.urandom() uses the
             # ESP32's hardware RNG, making the challenge unpredictable.
             self._nonce = os.urandom(_NONCE_LEN)
@@ -99,8 +103,10 @@ class BLELock:
         elif event == _IRQ_CENTRAL_DISCONNECT:
             self._conn  = None
             self._nonce = None  # Invalidate nonce so a late write can't be processed
-            # Restart advertising so the next phone can connect
-            self._advertise()
+            # During a lockout, task() is responsible for calling _advertise() after
+            # the pause — skip it here so we don't re-open advertising too early.
+            if not self._locked_out:
+                self._advertise()
             dbg("BLE: disconnected")
 
         elif event == _IRQ_GATTS_WRITE:
@@ -183,4 +189,13 @@ class BLELock:
                 self.unlock_ports = [str(port_num)]
                 self.unlock_flag.set()
             else:
-                red("BLE: auth fail")
+                self._fail_count += 1
+                red(f"BLE: auth fail ({self._fail_count}/{BLE_MAX_FAIL})")
+                if self._fail_count >= BLE_MAX_FAIL:
+                    red(f"BLE: too many failures, locking out for {BLE_LOCKOUT_S}s")
+                    self._locked_out = True
+                    if self._conn is not None:
+                        self._ble.gap_disconnect(self._conn)
+                    await asyncio.sleep(BLE_LOCKOUT_S)
+                    self._locked_out = False
+                    self._advertise()
