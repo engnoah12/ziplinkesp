@@ -64,8 +64,8 @@ async def hashTest(_hash, _str) -> bool:
                 # Decrement the remaining old-key grace count on every new-key success
                 print("This is a new key", end=' ')
                 _old_nvs.set_i32('count', _old_keys - 1)
-                _old_nvs('oldkey').commit()
-                print(_old_nvs('oldkey').get_i32('count'), " keys left!")
+                _old_nvs.commit()
+                print(_old_nvs.get_i32('count'), " keys left!")
                 print("Update keycount")
                 del _old_nvs; _old_keys; gc.collect()
         return True
@@ -79,7 +79,7 @@ def setKeys(_knum: int):
     """Manually set the old-key grace counter in NVS. Used during key rotation setup."""
     from esp32 import NVS
     _nvs = NVS('oldkey')
-    _nvs('oldkey').set_i32('count', _knum)
-    _nvs('oldkey').commit()
+    _nvs.set_i32('count', _knum)
+    _nvs.commit()
     del NVS, _nvs
     gc.collect()
