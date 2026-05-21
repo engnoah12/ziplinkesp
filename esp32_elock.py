@@ -490,7 +490,7 @@ async def testHMAC(inByte: bytes = b"") -> None:
             abortUnlock.set()
             abortBlink.set()
             print("\nAborting unlock!!!\n")
-            while not runningUnlock.is_set():
+            while runningUnlock.is_set():
                 await asyncio.sleep_ms(50)
         loop.create_task(gmBlink(0b010, _HOLDBLINKTIME_MS, True))
         loop.create_task(tuneandUnlock(_ports))
