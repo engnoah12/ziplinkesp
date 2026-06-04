@@ -619,6 +619,15 @@ if (
             NVS("oldkey").set_i32("count", 20)
             NVS("oldkey").commit()
             dbg("Key's set to 20", " ")
+
+    # Will create 'bledate' if missing (BLE purchase-ticket expiry replay protection)
+    try:
+        NVS("bledate").get_i32("last")
+    except OSError as ose:
+        if ose.args[0] == -4354:
+            dbg("BLE date not found, creating...", " ")
+            NVS("bledate").set_i32("last", 0)
+            NVS("bledate").commit()
     del NVS
     dbg("Ok!")
 gc.collect()

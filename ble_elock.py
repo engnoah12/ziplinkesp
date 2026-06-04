@@ -1,5 +1,5 @@
 ############################
-# date: 2026-05-07 00:00 #
+# date: 2026-06-04 00:00 #
 #
 # BLE hands-free authentication protocol:
 #
@@ -9,13 +9,18 @@
 #      writes it to the CHALLENGE characteristic, and notifies the phone.
 #   4. Phone has BLE_CONN_TIMEOUT_S seconds to respond. If it doesn't,
 #      the connection is dropped and advertising resumes automatically.
-#   5. Phone sends 20 bytes to the RESPONSE characteristic:
-#        byte[0]    : port number to unlock (1–3)
-#        byte[1:20] : HMAC-SHA256(HASH_KEY_NEW, hex(nonce) + ':' + str(port))[:19]
-#   6. ESP32 recomputes the expected HMAC and compares first 19 bytes. Match → unlock.
+#   5. Phone sends 31 bytes to the RESPONSE characteristic:
+#        byte[0]     : port number to unlock (1–3)
+#        byte[1:15]  : purchase expiry as ASCII "YYYYMMDDHHMMSS" (14 bytes)
+#        byte[15:31] : HMAC-SHA256(HASH_KEY_NEW, hex(nonce)+':'+port+':'+expiry)[:16]
+#   6. ESP32 recomputes the expected HMAC, compares 16 bytes, then checks that
+#      the expiry timestamp is strictly newer than the last accepted BLE ticket
+#      stored in NVS ('bledate'/'last'). Both checks must pass → unlock.
 #
 # The nonce is single-use: a new one is generated on every connection, so
 # capturing and replaying a valid response provides no access.
+# The expiry ties access to a server-issued purchase ticket, so a leaked key
+# alone cannot grant permanent access — the ticket must be current.
 #
 import gc
 gc.collect()
@@ -42,8 +47,9 @@ _FLAG_READ   = const(0x0002)
 _FLAG_WRITE  = const(0x0008)
 _FLAG_NOTIFY = const(0x0010)
 
-_NONCE_LEN = const(16)  # Bytes of randomness in the challenge
-_HMAC_LEN  = const(19)  # Trunkerad till 19 bytes för BLE 20-byte MTU (1 port + 19 HMAC = 20)
+_NONCE_LEN  = const(16)  # Bytes of randomness in the challenge
+_EXPIRY_LEN = const(14)  # "YYYYMMDDHHMMSS" — ASCII digits from the purchase ticket
+_HMAC_LEN   = const(16)  # 128-bit truncated HMAC (1 + 14 + 16 = 31 bytes total)
 
 # GATT service definition: one service with two characteristics.
 # Defined once at module level so it lives in flash (const data), not RAM.
@@ -159,36 +165,39 @@ class BLELock:
             if nonce is None or payload is None:
                 continue
 
-            # Expected payload: 1 byte port + 19 bytes HMAC = 20 bytes total
-            if len(payload) != 1 + _HMAC_LEN:
+            # Expected payload: 1 byte port + 14 bytes expiry + 16 bytes HMAC = 31 bytes
+            if len(payload) != 1 + _EXPIRY_LEN + _HMAC_LEN:
                 red(f"BLE: bad payload len {len(payload)}")
                 continue
 
-            port_num  = payload[0]
-            recv_hmac = payload[1:]
+            port_num   = payload[0]
+            expiry_raw = payload[1:1 + _EXPIRY_LEN]
+            recv_hmac  = payload[1 + _EXPIRY_LEN:]
 
             if not 1 <= port_num <= 3:
                 red(f"BLE: invalid port {port_num}")
                 continue
 
-            # Build the message that the phone should have signed:
-            # hex-encoded nonce + ':' + port number as string.
-            # Using hex keeps the message printable, matching hmac_sha256()'s string API.
+            # Expiry must be 14 ASCII decimal digits ("YYYYMMDDHHMMSS")
+            if not all(0x30 <= b <= 0x39 for b in expiry_raw):
+                red("BLE: invalid expiry format")
+                continue
+
+            expiry_str = expiry_raw.decode()
+
+            # Build the message: hex(nonce) + ':' + port + ':' + expiry
+            # Expiry is included so the HMAC covers the purchase time-window,
+            # preventing reuse of a key without a valid server-issued ticket.
             from binascii import hexlify
             from elock_hmac_sha256 import hmac_sha256
             from _key_new import HASH_KEY_NEW
 
-            msg      = hexlify(nonce).decode() + ':' + str(port_num)
+            msg      = hexlify(nonce).decode() + ':' + str(port_num) + ':' + expiry_str
             expected = hmac_sha256(HASH_KEY_NEW, msg)
             del HASH_KEY_NEW, hmac_sha256, hexlify, msg
             gc.collect()
 
-            # Compare only first 19 bytes due to BLE MTU truncation
-            if expected[:19] == recv_hmac:
-                green("BLE: auth ok")
-                self.unlock_ports = [str(port_num)]
-                self.unlock_flag.set()
-            else:
+            if expected[:_HMAC_LEN] != recv_hmac:
                 self._fail_count += 1
                 red(f"BLE: auth fail ({self._fail_count}/{BLE_MAX_FAIL})")
                 if self._fail_count >= BLE_MAX_FAIL:
@@ -199,3 +208,41 @@ class BLELock:
                     await asyncio.sleep(BLE_LOCKOUT_S)
                     self._locked_out = False
                     self._advertise()
+                continue
+
+            # HMAC OK — check expiry against NVS (replay + purchase-expiry protection)
+            from config import NVS_ACTIVE
+            if NVS_ACTIVE:
+                import utime
+                from esp32 import NVS
+                _ticket_ok = False
+                try:
+                    tdate = (
+                        int(expiry_str[0:4]),
+                        int(expiry_str[4:6]),
+                        int(expiry_str[6:8]),
+                        int(expiry_str[8:10]),
+                        int(expiry_str[10:12]),
+                        int(expiry_str[12:14]),
+                        0, 0,
+                    )
+                    tcount   = utime.mktime(tdate)
+                    nvs_ble  = NVS('bledate')
+                    nvs_last = nvs_ble.get_i32('last')
+                    if tcount <= nvs_last:
+                        red("BLE: ticket expired or replayed")
+                    else:
+                        nvs_ble.set_i32('last', tcount)
+                        nvs_ble.commit()
+                        _ticket_ok = True
+                    del nvs_ble
+                except Exception as e:
+                    red(f"BLE: NVS error {e}")
+                del NVS, utime
+                gc.collect()
+                if not _ticket_ok:
+                    continue
+
+            green("BLE: auth ok")
+            self.unlock_ports = [str(port_num)]
+            self.unlock_flag.set()
