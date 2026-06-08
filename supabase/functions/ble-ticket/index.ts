@@ -9,6 +9,8 @@
 //   HMAC-SHA256(HASH_KEY_NEW, hex(nonce) + ':' + port + ':' + expiry)[:16]
 // which matches exactly what the ESP32 verifies in ble_elock.py.
 
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
 // ─── HMAC helper ─────────────────────────────────────────────────────────────
 
 async function computeHmac(key: string, message: string): Promise<string> {
@@ -58,11 +60,29 @@ Deno.serve(async (req) => {
     return new Response("Invalid port", { status: 400 });
   }
 
-  // ── 2. Verify user has a valid purchase ──────────────────────────────────
+  // ── 2. Authenticate the caller ───────────────────────────────────────────
+
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  // Create a Supabase client that acts on behalf of the calling user.
+  // SUPABASE_URL and SUPABASE_ANON_KEY are injected automatically by Supabase.
+  const supabase = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_ANON_KEY")!,
+    { global: { headers: { Authorization: authHeader } } },
+  );
+
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+
+  // ── 3. Verify user has a valid purchase ──────────────────────────────────
   //
-  // TODO: query your purchases table here once you have access to Supabase.
-  //
-  // Example (using Supabase client):
+  // TODO: replace table/column names with your actual schema.
   //
   //   const { data, error } = await supabase
   //     .from("purchases")           // ← replace with your table name
@@ -75,10 +95,10 @@ Deno.serve(async (req) => {
   //     return new Response("No valid purchase", { status: 403 });
   //   }
   //
-  // For now we use a hardcoded expiry so you can test the HMAC logic:
+  // For now we use a hardcoded expiry so you can test the rest of the flow:
   const expiry = "20261231235959"; // "YYYYMMDDHHMMSS" — replace with data.expires_at
 
-  // ── 3. Compute HMAC ──────────────────────────────────────────────────────
+  // ── 4. Compute HMAC ──────────────────────────────────────────────────────
 
   const hashKey = Deno.env.get("HASH_KEY_NEW");
   if (!hashKey) {
@@ -90,7 +110,7 @@ Deno.serve(async (req) => {
   const message = `${nonce}:${port}:${expiry}`;
   const hmac = await computeHmac(hashKey, message);
 
-  // ── 4. Return ticket to the phone ────────────────────────────────────────
+  // ── 5. Return ticket to the phone ────────────────────────────────────────
 
   return new Response(JSON.stringify({ expiry, hmac }), {
     headers: { "Content-Type": "application/json" },
