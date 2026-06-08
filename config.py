@@ -1,7 +1,11 @@
 ############################
 # date: 2025-02-25 00:00 #
 
-from micropython import const
+try:
+	from micropython import const
+except Exception:  # not running on MicroPython (e.g. type checkers, editors)
+	def const(x: bool) -> bool:  # fallback for CPython environment
+		return x
 
 DEBUG: bool         = const(True)   # Print verbose output to serial console
 WIFI_ACTIVE: bool   = const(False)   # Send open-door events to cameras over TCP

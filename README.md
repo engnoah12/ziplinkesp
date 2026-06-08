@@ -58,55 +58,41 @@ HASH_KEY_NEW_ID: str = const(r'prod')
 
 Nyckeln ska **aldrig** committas till versionshantering — lägg till `_key_new.py` i `.gitignore`.
 
-#### 3. Backend — utfärda BLE-biljett vid köp
+#### 3. Backend — Supabase Edge Function
 
-När ett köp genomförs ska backend returnera ett utgångsdatum till appen:
+Koden finns i `supabase/functions/ble-ticket/index.ts`. Telefonen anropar den med nonce och port, och får tillbaka expiry + HMAC. Nyckeln lämnar aldrig servern.
 
-```python
-from datetime import datetime, timedelta
+**Driftsätt:**
 
-def issue_ble_ticket(purchase_duration_hours: int, port: int) -> dict:
-    expiry = datetime.now() + timedelta(hours=purchase_duration_hours)
-    expiry_str = expiry.strftime("%Y%m%d%H%M%S")  # "YYYYMMDDHHMMSS"
-    return {
-        "port": port,
-        "expiry": expiry_str,
-    }
+```bash
+supabase secrets set HASH_KEY_NEW=<din nyckel>
+supabase functions deploy ble-ticket
 ```
 
-Biljetten behöver **inte** signeras av backend — signaturen beräknas av appen i steg 4.
+**TODO:** Fyll i databasfrågan i filen (markerat med `TODO`) när köp-tabellens struktur är klar.
 
-#### 4. App — beräkna och skicka BLE-payload
+#### 4. App — bygg och skicka BLE-payload
 
-Appen tar emot nonce från ESP32 och bygger svaret:
+Telefonen:
+1. Ansluter till BLE, tar emot nonce (hex-sträng, 32 tecken)
+2. Anropar Edge Function:
 
-```python
-import hmac, hashlib, binascii
-
-def build_ble_payload(nonce: bytes, port: int, expiry: str, key: str) -> bytes:
-    msg = binascii.hexlify(nonce).decode() + ':' + str(port) + ':' + expiry
-    full_hmac = hmac.new(key.encode(), msg.encode(), hashlib.sha256).digest()
-    return bytes([port]) + expiry.encode() + full_hmac[:16]  # 31 bytes
-```
-
-> **OBS:** `key` är `HASH_KEY_NEW` från `_key_new.py`. Antingen distribueras nyckeln till appen (klienthemlighet) eller så signerar backend meddelandet och returnerar HMAC direkt — då behöver appen aldrig känna till nyckeln.
-
-#### 5. Säkerhetsnivåer att välja mellan
-
-| Alternativ | Nyckel finns i | Säkerhet |
-|---|---|---|
-| **A. Nyckel i app** | Appen + ESP32 | Enklare, men nyckel kan extraheras ur appen |
-| **B. Backend signerar** | Endast backend + ESP32 | Starkare — appen skickar bara `(nonce, port, expiry)` till backend och får tillbaka HMAC |
-
-För alternativ B skickar appen till backend:
 ```json
-{ "nonce": "<hex>", "port": 1, "expiry": "20261231235959" }
+POST /functions/v1/ble-ticket
+{ "nonce": "a3f7c2...", "port": 1 }
 ```
-Backend returnerar:
+
+3. Får tillbaka:
+
 ```json
-{ "hmac": "<16 bytes hex>" }
+{ "expiry": "20261231235959", "hmac": "9a3f..." }
 ```
-Appen bygger sedan payload: `bytes([port]) + expiry.encode() + bytes.fromhex(hmac_hex)`.
+
+4. Bygger 31-byte payload och skickar till RESPONSE-characteristiken:
+
+```
+bytes([port]) + expiry.encode() + bytes.fromhex(hmac)
+```
 
 ---
 
