@@ -62,6 +62,8 @@ Nyckeln ska **aldrig** committas till versionshantering — lägg till `_key_new
 
 Koden finns i `supabase/functions/ble-ticket/index.ts`. Telefonen anropar den med nonce och port, och får tillbaka expiry + HMAC. Nyckeln lämnar aldrig servern.
 
+**Autentisering:** Anropet kräver ett giltigt Supabase JWT i `Authorization`-headern. Utan det returneras `401`.
+
 **Driftsätt:**
 
 ```bash
@@ -75,10 +77,11 @@ supabase functions deploy ble-ticket
 
 Telefonen:
 1. Ansluter till BLE, tar emot nonce (hex-sträng, 32 tecken)
-2. Anropar Edge Function:
+2. Anropar Edge Function med användarens Supabase-session:
 
 ```json
 POST /functions/v1/ble-ticket
+Authorization: Bearer <supabase-session-token>
 { "nonce": "a3f7c2...", "port": 1 }
 ```
 
