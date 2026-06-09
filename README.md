@@ -135,6 +135,71 @@ python3 test_ble_unlock.py --expiry 20281231235959
 
 ---
 
+## BLE-filuppdatering (OTA)
+
+Tillåter att `.py`-filer på ESP32:n uppdateras trådlöst via BLE — utan USB-kabel eller WiFi. Kunden behöver ingen teknisk kunskap.
+
+### Hur det fungerar
+
+1. ESP32 exponerar en separat GATT-tjänst (UUID `6E400011-...`) parallellt med låstjänsten.
+2. Telefonen ansluter och tar emot en **nonce** från `UPD_CHALLENGE`.
+3. Telefonen autentiserar med `HMAC-SHA256(HASH_KEY_UPD, hex(nonce))` → `UPD_AUTH`.
+4. Efter godkänd autentisering kan telefonen skicka filer:
+   - Filnamn → `UPD_FILENAME`
+   - Fildata i ≤200-byte bitar → `UPD_DATA`
+   - Avsluta → `UPD_COMMIT` (`0x01` = spara, `0x02` = avbryt, `0x03` = spara + starta om)
+5. Flera filer kan skickas i samma session.
+
+Separata nycklar: `HASH_KEY_UPD` är oberoende av `HASH_KEY_NEW` — ett läckt upplåsningsnyckel ger inte åtkomst till uppdatering och vice versa.
+
+### Säkerhetsgränser
+
+Följande filer **kan inte** skrivas om via BLE (skyddas av en whitelist i `_cfg_ble.py`):
+
+- `boot.py` — en trasig boot-fil kan bricka enheten
+- `_key_new.py`, `_key_upd.py`, `_key_old.py` — nycklar ska aldrig kunna skrivas över trådlöst
+
+### Sätta upp uppdateringsnyckeln
+
+Skapa `_key_upd.py` med en unik hemlighet:
+
+```python
+# _key_upd.py
+HASH_KEY_UPD = 'DIN_HEMLIGA_UPPDATERINGSNYCKEL_HÄR'
+```
+
+Filen ska **aldrig** committas — den finns redan i `.gitignore`.
+
+### Generera kundsida
+
+```bash
+python3 bundle_update.py
+```
+
+Genererar `ziplink_update.html` — en självständig HTML-fil med nyckeln och alla filer inbakade. Dela med kunden via en HTTPS-länk.
+
+**Krav:** Sidan måste öppnas via `https://` — inte direkt från fil.
+- **Android:** Chrome
+- **iOS:** [Bluefy](https://apps.apple.com/app/bluefy-web-ble-browser/id1492822055) (App Store, gratis)
+
+`ziplink_update.html` är i `.gitignore` och ska aldrig committas (innehåller nyckeln).
+
+### Testskript (utan telefon)
+
+```bash
+python3 test_ble_updater.py --file config.py
+python3 test_ble_updater.py --file config.py --reboot
+```
+
+| Flagga | Beskrivning | Standard |
+|---|---|---|
+| `--file` | Lokal fil att ladda upp | *(krävs)* |
+| `--dest` | Målfilnamn på ESP32 | samma som `--file` |
+| `--key` | HMAC-nyckel (måste matcha `_key_upd.py`) | värdet i `_key_upd.py` |
+| `--reboot` | Starta om ESP32 efter uppladdning | `False` |
+
+---
+
 ## QR-kodformat
 
 ```
