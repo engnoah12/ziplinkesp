@@ -689,8 +689,11 @@ if BLE_ACTIVE:
     print(" BLE", end="")
     dbg("BLE-Init")
     from ble_elock import BLELock
-    _ble_lock = BLELock()
+    from ble_updater import BLEUpdater
+    _ble_updater = BLEUpdater()
+    _ble_lock = BLELock(updater=_ble_updater)
     loop.create_task(_ble_lock.task())
+    loop.create_task(_ble_updater.task())
 
     async def _ble_monitor():
         # Bridge between the BLE auth result and the existing unlock/blink logic.

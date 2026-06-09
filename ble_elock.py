@@ -63,14 +63,27 @@ _SERVICE = (
 
 
 class BLELock:
-    def __init__(self):
+    def __init__(self, updater=None):
         self._ble = bluetooth.BLE()
         self._ble.active(True)
         self._ble.config(mtu=256)
         self._ble.irq(self._irq)
 
-        # gatts_register_services returns handle tuples matching the service definition layout
-        ((self._h_challenge, self._h_response),) = self._ble.gatts_register_services((_SERVICE,))
+        self._updater = updater
+
+        # Register the lock service, and optionally the updater service, in one call.
+        # gatts_register_services must be called exactly once — subsequent calls
+        # replace the entire service table.
+        if updater is not None:
+            (lock_handles, upd_handles) = self._ble.gatts_register_services(
+                (_SERVICE, updater.SERVICE)
+            )
+            (self._h_challenge, self._h_response) = lock_handles
+            updater.set_handles(self._ble, *upd_handles)
+        else:
+            ((self._h_challenge, self._h_response),) = self._ble.gatts_register_services(
+                (_SERVICE,)
+            )
 
         # Pre-allocate a 31-byte buffer for RESPONSE so MicroPython doesn't truncate
         # incoming writes to the default 20-byte attribute buffer.
@@ -108,11 +121,15 @@ class BLELock:
             # time to subscribe before the value arrives.
             self._ble.gatts_write(self._h_challenge, self._nonce)
             self._connect_flag.set()
+            if self._updater is not None:
+                self._updater.on_connect(conn_handle)
             dbg("BLE: connected")
 
         elif event == _IRQ_CENTRAL_DISCONNECT:
             self._conn  = None
             self._nonce = None  # Invalidate nonce so a late write can't be processed
+            if self._updater is not None:
+                self._updater.on_disconnect()
             # During a lockout, task() is responsible for calling _advertise() after
             # the pause — skip it here so we don't re-open advertising too early.
             if not self._locked_out:
@@ -121,6 +138,10 @@ class BLELock:
 
         elif event == _IRQ_GATTS_WRITE:
             _, value_handle = data
+            # Route writes addressed to the updater service before checking lock handles
+            if self._updater is not None and value_handle in self._updater._handles:
+                self._updater.on_write(value_handle)
+                return
             # Only process writes to RESPONSE, and only if we have an active nonce
             if value_handle == self._h_response and self._nonce is not None:
                 self._payload = self._ble.gatts_read(self._h_response)
@@ -154,6 +175,12 @@ class BLELock:
                 # it connected accidentally (e.g. background BLE scan) and disconnect.
                 await asyncio.wait_for(self._verify_flag.wait(), BLE_CONN_TIMEOUT_S)
             except asyncio.TimeoutError:
+                # If the updater has an active session the phone is uploading files,
+                # not unlocking — wait for it to finish rather than killing the connection.
+                if self._updater is not None and self._updater._authed:
+                    while self._conn is not None:
+                        await asyncio.sleep(1)
+                    continue
                 red("BLE: response timeout, disconnecting")
                 if self._conn is not None:
                     # gap_disconnect triggers _IRQ_CENTRAL_DISCONNECT which calls _advertise()

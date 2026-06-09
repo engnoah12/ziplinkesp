@@ -1,5 +1,5 @@
 ############################
-# date: 2026-05-07 00:00 #
+# date: 2026-06-09 00:00 #
 
 from micropython import const
 
@@ -24,3 +24,29 @@ BLE_LOCKOUT_S: int   = const(30)
 BLE_SVC_UUID: str      = const('6E400001-B5A3-F393-E0A9-E50E24DCCA9E')
 BLE_CHR_CHALLENGE: str = const('6E400002-B5A3-F393-E0A9-E50E24DCCA9E')
 BLE_CHR_RESPONSE: str  = const('6E400003-B5A3-F393-E0A9-E50E24DCCA9E')
+
+# ── BLE Updater service ───────────────────────────────────────────────────────
+# Separate GATT service for authenticated file writes from a phone.
+# Uses different UUIDs and a different key (HASH_KEY_UPD) from the lock service
+# so a compromised unlock key does not grant update access and vice versa.
+
+# UUIDs: same base as the lock service, sub-range 11–16.
+UPD_SVC_UUID: str      = const('6E400011-B5A3-F393-E0A9-E50E24DCCA9E')
+UPD_CHR_CHALLENGE: str = const('6E400012-B5A3-F393-E0A9-E50E24DCCA9E')
+UPD_CHR_AUTH: str      = const('6E400013-B5A3-F393-E0A9-E50E24DCCA9E')
+UPD_CHR_FILENAME: str  = const('6E400014-B5A3-F393-E0A9-E50E24DCCA9E')
+UPD_CHR_DATA: str      = const('6E400015-B5A3-F393-E0A9-E50E24DCCA9E')
+UPD_CHR_COMMIT: str    = const('6E400016-B5A3-F393-E0A9-E50E24DCCA9E')
+
+UPD_AUTH_TIMEOUT_S: int  = const(15)   # Seconds to authenticate before disconnect
+UPD_SESSION_TIMEOUT_S: int = const(60) # Inactivity timeout during an open session
+UPD_MAX_FILE_BYTES: int  = const(32768) # Largest file is esp32_elock.py ~24 KB
+
+# Files the updater is allowed to overwrite.
+# boot.py and key files are intentionally excluded.
+UPD_ALLOWED_FILES = (
+    'main.py', 'esp32_elock.py', 'ble_elock.py', 'ble_updater.py',
+    'config.py', 'consts.py', 'elock_hmac_sha256.py', 'testHASH.py',
+    '_cfg_ble.py', '_cfg_network.py', '_cfg_serial.py', '_utils.py',
+    '_crc_xmodem_table.py',
+)
