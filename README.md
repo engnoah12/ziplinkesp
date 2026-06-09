@@ -170,19 +170,57 @@ HASH_KEY_UPD = 'DIN_HEMLIGA_UPPDATERINGSNYCKEL_HÄR'
 
 Filen ska **aldrig** committas — den finns redan i `.gitignore`.
 
-### Generera kundsida
+### Adminpanel och publicering via Supabase Storage
 
-```bash
-python3 bundle_update.py
+Uppdateringsflödet är byggt kring en adminpanel (`admin.html`) som publicerar kundsidan direkt till **Supabase Storage**. Kunden får en fast URL som alltid pekar på senaste versionen.
+
+#### Flöde
+
+```
+Admin (admin.html)
+  1. Fyller i Supabase-inställningar (sparas i webbläsaren)
+  2. Anger uppdateringsnyckeln (HASH_KEY_UPD)
+  3. Drar in de .py-filer som ska ingå i uppdateringen
+  4. Trycker "Publicera"
+     → ziplink_update.html laddas upp till Supabase Storage
+     → En publik URL visas att kopiera och skicka till kunden
+
+Kund
+  5. Öppnar URL:en i Chrome (Android) eller Bluefy (iOS)
+  6. Trycker "Starta uppdatering" och väljer ZipLink i listan
+     → Telefonen autentiserar och laddar upp filerna via BLE
+     → ESP32:n startar om med ny programvara
 ```
 
-Genererar `ziplink_update.html` — en självständig HTML-fil med nyckeln och alla filer inbakade. Dela med kunden via en HTTPS-länk.
+#### Sätta upp Supabase Storage
 
-**Krav:** Sidan måste öppnas via `https://` — inte direkt från fil.
+1. Skapa en publik bucket i Supabase dashboard (t.ex. `updates`)
+2. Notera projektets URL (`https://xxx.supabase.co`) och en API-nyckel med skrivbehörighet till storage
+
+#### Generera adminpanel
+
+```bash
+python3 bundle_update.py --admin   # → admin.html
+```
+
+Öppna `admin.html` i webbläsaren och fyll i inställningarna under **Supabase-inställningar** (sparas automatiskt i `localStorage`).
+
+#### Krav för kundsidan
+
+Sidan måste öppnas via `https://` — Supabase Storage tillhandahåller detta automatiskt.
 - **Android:** Chrome
 - **iOS:** [Bluefy](https://apps.apple.com/app/bluefy-web-ble-browser/id1492822055) (App Store, gratis)
 
-`ziplink_update.html` är i `.gitignore` och ska aldrig committas (innehåller nyckeln).
+`ziplink_update.html` och `admin.html` är i `.gitignore` och ska aldrig committas (innehåller nyckeln).
+
+#### Alternativ: generera lokalt
+
+Om Supabase inte används kan kundsidan genereras lokalt och delas manuellt:
+
+```bash
+python3 bundle_update.py                     # alla filer
+python3 bundle_update.py config.py main.py   # bara valda filer
+```
 
 ### Testskript (utan telefon)
 
