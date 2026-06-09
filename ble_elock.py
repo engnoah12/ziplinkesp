@@ -72,6 +72,10 @@ class BLELock:
         # gatts_register_services returns handle tuples matching the service definition layout
         ((self._h_challenge, self._h_response),) = self._ble.gatts_register_services((_SERVICE,))
 
+        # Pre-allocate a 31-byte buffer for RESPONSE so MicroPython doesn't truncate
+        # incoming writes to the default 20-byte attribute buffer.
+        self._ble.gatts_write(self._h_response, bytes(31))
+
         self._conn       = None   # Active connection handle, None when idle
         self._nonce      = None   # Current challenge bytes, cleared on disconnect
         self._payload    = None   # Raw bytes written by phone, consumed by task()

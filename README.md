@@ -99,6 +99,42 @@ bytes([port]) + expiry.encode() + bytes.fromhex(hmac)
 
 ---
 
+## BLE-testskript (utan Supabase)
+
+`test_ble_unlock.py` låter dig testa BLE-upplåsningen direkt från en Mac utan att behöva Supabase eller en app. HMAC beräknas lokalt med nyckeln från `_key_new.py`.
+
+**Installation:**
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install bleak
+```
+
+**Kör:**
+
+```bash
+python3 test_ble_unlock.py
+```
+
+**Flaggor:**
+
+| Flagga | Beskrivning | Standard |
+|---|---|---|
+| `--port` | Portnummer att låsa upp (1–3) | `1` |
+| `--key` | HMAC-nyckel (måste matcha `_key_new.py`) | `0123456789ABCDEFG` |
+| `--expiry` | Utgångsdatum `YYYYMMDDHHMMSS` | `20261231235959` |
+
+**OBS — NVS replay-skydd:** Varje expiry-tidsstämpel kan bara accepteras en gång. Vid upprepade tester måste `--expiry` ökas för varje körning:
+
+```bash
+python3 test_ble_unlock.py --expiry 20271231235959
+python3 test_ble_unlock.py --expiry 20281231235959
+# osv...
+```
+
+---
+
 ## QR-kodformat
 
 ```
