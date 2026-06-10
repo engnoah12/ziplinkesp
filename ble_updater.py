@@ -94,7 +94,8 @@ class BLEUpdater:
 
         # Flags: ThreadSafeFlag is safe to set() from BLE IRQ context
         self._connect_flag = asyncio.ThreadSafeFlag()
-        self._write_flag   = asyncio.ThreadSafeFlag()
+        self._auth_flag    = asyncio.ThreadSafeFlag()  # set only by auth writes (fix 4)
+        self._write_flag   = asyncio.ThreadSafeFlag()  # set by filename/commit writes
 
         # Characteristic handles — filled by BLELock via set_handles()
         self._h_challenge = None
@@ -124,11 +125,15 @@ class BLEUpdater:
     # Called from BLELock._irq — must be fast, no allocation beyond bytearray.extend().
 
     def on_connect(self, conn_handle):
-        self._conn     = conn_handle
-        self._authed   = False
-        self._filename = None
-        self._buf      = bytearray()
-        self._overflow = False
+        self._conn          = conn_handle
+        self._authed        = False
+        self._filename      = None
+        self._buf           = bytearray()
+        self._overflow      = False
+        self._auth_data     = None  # fix 3: clear stale state from previous connection
+        self._filename_data = None
+        self._commit_cmd    = None
+        self._commit_hash   = None
         self._connect_flag.set()
 
     def on_disconnect(self):
@@ -148,16 +153,19 @@ class BLEUpdater:
             else:
                 self._overflow = True
             return
-        # Auth / filename / commit: capture and wake the task
+        # Auth uses a dedicated flag so spurious session writes during Phase 1
+        # cannot consume the auth wake and trigger a false disconnect (fix 4).
         if value_handle == self._h_auth:
             self._auth_data = self._ble.gatts_read(self._h_auth)
+            self._auth_flag.set()
         elif value_handle == self._h_filename:
             self._filename_data = self._ble.gatts_read(self._h_filename)
+            self._write_flag.set()
         elif value_handle == self._h_commit:
             data = self._ble.gatts_read(self._h_commit)
             self._commit_cmd  = data[0] if data else 0
             self._commit_hash = bytes(data[1:33]) if len(data) >= 33 else None
-        self._write_flag.set()
+            self._write_flag.set()
 
     # ── Async task ────────────────────────────────────────────────────────────
 
@@ -176,9 +184,10 @@ class BLEUpdater:
                 self._ble.gatts_notify(self._conn, self._h_challenge, self._nonce)
                 dbg("UPD: nonce sent")
 
-            # Phase 1: wait for auth within the timeout window
+            # Phase 1: wait for auth — dedicated flag so filename/commit
+            # writes arriving before auth cannot falsely fail this check (fix 4).
             try:
-                await asyncio.wait_for(self._write_flag.wait(), UPD_AUTH_TIMEOUT_S)
+                await asyncio.wait_for(self._auth_flag.wait(), UPD_AUTH_TIMEOUT_S)
             except asyncio.TimeoutError:
                 red("UPD: auth timeout")
                 continue
@@ -192,6 +201,10 @@ class BLEUpdater:
                 continue
 
             self._authed = True
+            # Discard any session writes that arrived during the auth phase (fix 4).
+            self._filename_data = None
+            self._commit_cmd    = None
+            self._commit_hash   = None
             green("UPD: authenticated")
 
             # Phase 2: session loop — filename → data chunks → commit
@@ -219,7 +232,12 @@ class BLEUpdater:
                     except Exception:
                         red("UPD: invalid filename encoding")
                         self._filename = None
-                    continue
+                    # Skip back to wait only if there is no pending commit.
+                    # A coalesced filename+commit write would otherwise leave
+                    # _commit_cmd set but _write_flag clear, hanging for the
+                    # full session timeout (fix 1).
+                    if self._commit_cmd is None:
+                        continue
 
                 if self._commit_cmd is not None:
                     cmd = self._commit_cmd
