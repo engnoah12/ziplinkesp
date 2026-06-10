@@ -314,6 +314,100 @@ python3 test_ble_updater.py --file config.py --reboot
 
 ---
 
+## NFC-access (under utveckling — branch `feature/nfc-access`)
+
+Tillåter upplåsning via NFC-tap med telefon eller kort — utan app, utan BLE-dialog.
+
+### Hårdvara
+
+| Komponent | Koppling |
+|---|---|
+| PN532 NFC-modul | I2C: SDA → GPIO 16, SCL → GPIO 17 |
+| VCC | 5V (PN532 har inbyggd regulator) |
+| DIP-switch | SW1 = ON, SW2 = OFF (I2C-läge) |
+
+### Credential-format
+
+Samma format som QR-koden — ingen ny nyckel eller backend-logik behövs:
+
+```
+YYYYMMDDHHMMSS/pPORT::BASE64_HMAC
+```
+
+### Källor som stöds
+
+| Källa | Protokoll | iOS | Android |
+|---|---|---|---|
+| **Android HCE** | SELECT AID `F05A49504C4E4B` → GET CREDENTIAL | ✗ | ✓ |
+| **Apple Wallet VAS** | SELECT VAS AID → GET VAS DATA | ✓ | ✓ |
+| **Fysiskt NFC-kort** | UID-läsning | ✓ | ✓ |
+
+### iOS-begränsning
+
+Apple tillåter inte Web Bluetooth eller tredjepartsappar att använda HCE. iOS-kunder behöver antingen:
+- **Apple Wallet-pass** med NFC-credential (kräver Apple Developer-konto + VAS merchant-registrering)
+- **BLE-upplåsning** som fallback tills Wallet-integration är klar
+
+### Android HCE — vad som behövs i appen
+
+Android-appen måste registrera en `HostApduService` med ZipLinks AID:
+
+```xml
+<!-- AndroidManifest.xml -->
+<service android:name=".ZipLinkHceService"
+         android:exported="true"
+         android:permission="android.permission.BIND_NFC_SERVICE">
+    <intent-filter>
+        <action android:name="android.nfc.cardemulation.action.HOST_APDU_SERVICE"/>
+    </intent-filter>
+    <meta-data android:name="android.nfc.cardemulation.host_apdu_service"
+               android:resource="@xml/apduservice"/>
+</service>
+```
+
+```xml
+<!-- res/xml/apduservice.xml -->
+<host-apdu-service>
+    <aid-group category="other">
+        <aid-filter name="ZipLink" value="F05A49504C4E4B"/>
+    </aid-group>
+</host-apdu-service>
+```
+
+Tjänsten svarar på `GET CREDENTIAL (80 20 00 00 00)` med credential-strängen + `90 00`:
+
+```kotlin
+override fun processCommandApdu(apdu: ByteArray, extras: Bundle?): ByteArray {
+    val credential = "20261231235959/p1::BASE64_HMAC"
+    return credential.toByteArray() + byteArrayOf(0x90.toByte(), 0x00)
+}
+```
+
+### Testskript
+
+```bash
+# Verifiera att PN532 hittas på I2C
+exec(open('test_i2c_scan.py').read())   # i MicroPython REPL
+
+# Testa UID-läsning
+exec(open('test_nfc.py').read())
+
+# Testa fullständigt access-flöde
+exec(open('test_nfc_access.py').read())
+```
+
+### Filer
+
+| Fil | Beskrivning |
+|---|---|
+| `nfc_pn532.py` | PN532 I2C-drivrutin med APDU-stöd |
+| `nfc_access.py` | Access-logik: HCE, VAS, credential-verifiering |
+| `test_nfc.py` | Grundläggande UID-scan |
+| `test_nfc_access.py` | Fullständigt access-test |
+| `test_i2c_scan.py` | I2C-busskan för hårdvaruverifiering |
+
+---
+
 ## QR-kodformat
 
 ```
