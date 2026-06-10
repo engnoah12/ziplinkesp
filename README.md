@@ -54,7 +54,7 @@ Alla funktioner styrs med booleanska flaggor i `config.py`:
 | Flagga | Beskrivning |
 |---|---|
 | `DEBUG` | Verbose utskrift till seriell konsol |
-| `SERIAL_ACTIVE` | Aktiverar QR-kodläsaren (GM60 via UART) |
+| `SERIAL_ACTIVE` | Aktiverar QR-kodläsaren (GM60 via UART) — **måste vara `False` vid NFC-testning** (GM60 och PN532 delar GPIO 16/17) |
 | `PORTS_ACTIVE` | Aktiverar PWM-utmatning till lås |
 | `BLE_ACTIVE` | Aktiverar BLE-upplåsning (se nedan) |
 | `NVS_ACTIVE` | Lagrar tidsstämplar i flash (replay-skydd) |
@@ -325,6 +325,11 @@ Tillåter upplåsning via NFC-tap med telefon eller kort — utan app, utan BLE-
 | PN532 NFC-modul | I2C: SDA → GPIO 16, SCL → GPIO 17 |
 | VCC | 5V (PN532 har inbyggd regulator) |
 | DIP-switch | SW1 = ON, SW2 = OFF (I2C-läge) |
+
+> **OBS — `SERIAL_ACTIVE` i `config.py`:**
+> GPIO 16 och 17 delas av GM60 QR-scannern och PN532 NFC-modulen.
+> - **NFC aktiv:** sätt `SERIAL_ACTIVE = False`
+> - **GM60 aktiv:** sätt `SERIAL_ACTIVE = True` (och koppla ur PN532)
 
 ### Credential-format
 
