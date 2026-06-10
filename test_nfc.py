@@ -28,7 +28,8 @@ print("(Ctrl+C for att avbryta)\n")
 
 last_uid = None
 while True:
-    uid = nfc.read_card(timeout_ms=500)
+    result = nfc.read_card_full(timeout_ms=500)
+    uid = result[0] if result else None
     if uid and uid != last_uid:
         print(f"Kort hittat! UID: {uid.hex().upper()}  ({len(uid)} bytes)")
         last_uid = uid

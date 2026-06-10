@@ -314,22 +314,43 @@ python3 test_ble_updater.py --file config.py --reboot
 
 ---
 
-## NFC-access (under utveckling — branch `feature/nfc-access`)
+## NFC-access
 
-Tillåter upplåsning via NFC-tap med telefon eller kort — utan app, utan BLE-dialog.
+Tillåter upplåsning via NFC-tap med telefon eller kort — utan app, utan BLE-dialog. Kunden tappar telefonen eller ett kort mot läsaren och dörren öppnas.
+
+### Status
+
+| Funktion | Status |
+|---|---|
+| PN532 I2C-drivrutin | ✓ Testat |
+| Mifare Classic kortläsning | ✓ Testat — öppnar låset |
+| NTAG/Ultralight kortläsning | ✓ Implementerat |
+| Android HCE (telefon agerar kort) | ✓ ESP32-sidan klar, väntar på Android-app |
+| Apple Wallet VAS | ✓ ESP32-sidan klar, väntar på Apple-registrering |
+| NFC integrerat i huvudloop | ✓ Testat — `tuneAndUnlock` triggas vid tap |
 
 ### Hårdvara
 
 | Komponent | Koppling |
 |---|---|
-| PN532 NFC-modul | I2C: SDA → GPIO 16, SCL → GPIO 17 |
-| VCC | 5V (PN532 har inbyggd regulator) |
+| PN532 NFC-modul (ELECHOUSE v3 eller liknande) | I2C: SDA → GPIO 16, SCL → GPIO 17 |
+| VCC | **5V** (PN532 kräver 5V — 3.3V orsakar brownout) |
 | DIP-switch | SW1 = ON, SW2 = OFF (I2C-läge) |
 
-> **OBS — `SERIAL_ACTIVE` i `config.py`:**
+> **OBS — `SERIAL_ACTIVE` och `NFC_ACTIVE` i `config.py`:**
 > GPIO 16 och 17 delas av GM60 QR-scannern och PN532 NFC-modulen.
-> - **NFC aktiv:** sätt `SERIAL_ACTIVE = False`
-> - **GM60 aktiv:** sätt `SERIAL_ACTIVE = True` (och koppla ur PN532)
+> - **NFC aktiv:** `SERIAL_ACTIVE = False`, `NFC_ACTIVE = True`
+> - **GM60 aktiv:** `SERIAL_ACTIVE = True`, `NFC_ACTIVE = False` (koppla ur PN532)
+
+### Skriva credential på ett NFC-kort
+
+```python
+# Kör i MicroPython REPL
+exec(open('nfc_write_credential.py').read())
+# Håll kortet mot läsaren — credential skrivs och verifieras automatiskt
+```
+
+Ändra `EXPIRY` och `PORT` i `nfc_write_credential.py` för att anpassa credential.
 
 ### Credential-format
 
@@ -341,11 +362,12 @@ YYYYMMDDHHMMSS/pPORT::BASE64_HMAC
 
 ### Källor som stöds
 
-| Källa | Protokoll | iOS | Android |
-|---|---|---|---|
-| **Android HCE** | SELECT AID `F05A49504C4E4B` → GET CREDENTIAL | ✗ | ✓ |
-| **Apple Wallet VAS** | SELECT VAS AID → GET VAS DATA | ✓ | ✓ |
-| **Fysiskt NFC-kort** | UID-läsning | ✓ | ✓ |
+| Källa | Protokoll | iOS | Android | Status |
+|---|---|---|---|---|
+| **Mifare Classic-kort** | Autentiserad blockläsning | ✓ | ✓ | Testat ✓ |
+| **NTAG/Ultralight-kort** | NDEF Text | ✓ | ✓ | Implementerat |
+| **Android HCE** | SELECT AID `F05A49504C4E4B` → GET CREDENTIAL | ✗ | ✓ | Väntar på app |
+| **Apple Wallet VAS** | SELECT VAS AID → GET VAS DATA | ✓ | ✓ | Väntar på Apple-registrering |
 
 ### iOS-begränsning
 

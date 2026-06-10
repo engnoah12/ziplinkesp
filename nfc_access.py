@@ -74,21 +74,38 @@ def read_credential(nfc, timeout_ms=2000):
     if result is None:
         return None, None
 
-    uid, tg = result
+    uid, tg, sak = result
 
-    # 1. Try Android HCE
+    # Route by SAK to avoid sending unauthenticated reads to Mifare Classic
+    if sak in (0x08, 0x18):
+        # Mifare Classic — needs authentication before any read
+        cred = nfc.mifare_read_text(tg, uid)
+        if cred and '::' in cred:
+            gc.collect()
+            return cred, 'mifare_card'
+        gc.collect()
+        return uid.hex().upper(), 'card_uid'
+
+    if sak == 0x00:
+        # NTAG / Mifare Ultralight — try NDEF
+        cred = nfc.read_ndef_text(tg)
+        if cred and '::' in cred:
+            gc.collect()
+            return cred, 'ndef_card'
+        gc.collect()
+        return uid.hex().upper(), 'card_uid'
+
+    # ISO 14443-4 (SAK=0x20) — phone (Android HCE or Apple Wallet)
     cred = _read_hce(nfc, tg)
     if cred:
         gc.collect()
         return cred, 'hce_android'
 
-    # 2. Try Apple VAS
     cred = _read_vas(nfc, tg)
     if cred:
         gc.collect()
         return cred, 'vas_ios'
 
-    # 3. Fall back to plain card UID
     gc.collect()
     return uid.hex().upper(), 'card_uid'
 
@@ -145,24 +162,24 @@ def _read_vas(nfc, tg):
 
 # ── Credential verification ───────────────────────────────────────────────────
 
-def verify_credential(credential):
+async def verify_credential(credential):
     """
     Verify a ZipLink NFC credential using the same logic as QR codes.
     Returns (valid: bool, ports: list[str]).
 
     Credential format: YYYYMMDDHHMMSS/p1::BASE64_HMAC
     Reuses testHASH.hashTest() and NVS replay protection.
+    Must be awaited — hashTest is a coroutine.
     """
     if '::' not in credential:
         return False, []
     try:
         from testHASH import hashTest
-        import uasyncio as asyncio
         pos   = credential.index('::')
         _hash = credential[pos + 2:]
         _data = credential[:pos]
 
-        valid = asyncio.run(hashTest(_hash, _data))
+        valid = await hashTest(_hash, _data)
         if not valid:
             return False, []
 
@@ -185,27 +202,19 @@ def verify_credential(credential):
 
 # ── High-level access check ───────────────────────────────────────────────────
 
-def check_access(nfc, timeout_ms=2000):
+async def check_access(nfc, timeout_ms=2000):
     """
     Full access check: read NFC → verify credential → return result.
 
-    Returns dict:
-      {
-        'granted': bool,
-        'ports':   list[str],   # e.g. ['1'] or ['1','2']
-        'source':  str,         # 'hce_android' | 'vas_ios' | 'card_uid'
-        'uid':     str,         # raw credential or UID
-      }
-    or None if no NFC presentation detected.
+    Returns dict or None if no NFC presentation detected.
+    Must be awaited.
     """
     credential, source = read_credential(nfc, timeout_ms=timeout_ms)
     if credential is None:
         return None
 
     if source == 'card_uid':
-        # Plain card — no cryptographic credential, access denied by default.
-        # A whitelist check could be added here in the future.
         return {'granted': False, 'ports': [], 'source': source, 'uid': credential}
 
-    valid, ports = verify_credential(credential)
+    valid, ports = await verify_credential(credential)
     return {'granted': valid, 'ports': ports, 'source': source, 'uid': credential}
