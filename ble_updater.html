@@ -130,6 +130,29 @@
     animation: spin 0.7s linear infinite;
     display: inline-block;
   }
+  #progress-wrap {
+    padding: 6px 36px 2px;
+    display: none;
+  }
+  .progress-track {
+    height: 4px;
+    background: #f0f0f0;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .progress-fill {
+    height: 100%;
+    background: #0071e3;
+    border-radius: 2px;
+    width: 0%;
+    transition: width 0.1s linear;
+  }
+  .progress-pct {
+    font-size: 12px;
+    color: #aeaeb2;
+    text-align: right;
+    margin-top: 3px;
+  }
   @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 </head>
@@ -152,6 +175,10 @@
     <div class="step" id="s-upload">
       <div class="icon" id="i-upload">3</div>
       <span id="upload-label">Laddar upp filer</span>
+    </div>
+    <div id="progress-wrap">
+      <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+      <div class="progress-pct" id="progress-pct"></div>
     </div>
     <div class="step" id="s-done">
       <div class="icon" id="i-done">4</div>
@@ -198,6 +225,10 @@ function showError(msg) {
   const el = document.getElementById('error-msg');
   el.textContent = msg;
   el.style.display = 'block';
+}
+function setProgress(pct) {
+  document.getElementById('progress-fill').style.width = pct + '%';
+  document.getElementById('progress-pct').textContent  = pct + '%';
 }
 function showSuccess(msg) {
   const el = document.getElementById('success-msg');
@@ -274,19 +305,26 @@ document.getElementById('btn').addEventListener('click', async () => {
     const chrData     = await service.getCharacteristic(CHR_DATA);
     const chrCommit   = await service.getCharacteristic(CHR_COMMIT);
     const enc         = new TextEncoder();
+    const totalBytes  = FILES.reduce((sum, f) => sum + enc.encode(f.content).length, 0);
+    let   sentBytes   = 0;
+    document.getElementById('progress-wrap').style.display = 'block';
+    setProgress(0);
 
     for (let i = 0; i < FILES.length; i++) {
       const { name, content } = FILES[i];
       const isLast = i === FILES.length - 1;
 
       document.getElementById('upload-label').textContent =
-        `Laddar upp fil ${i + 1} / ${FILES.length}`;
+        `${name}  (${i + 1} / ${FILES.length})`;
 
       await chrFilename.writeValueWithResponse(enc.encode(name));
 
       const bytes = enc.encode(content);
       for (let offset = 0; offset < bytes.length; offset += CHUNK_SIZE) {
-        await chrData.writeValueWithResponse(bytes.slice(offset, offset + CHUNK_SIZE));
+        const chunk = bytes.slice(offset, offset + CHUNK_SIZE);
+        await chrData.writeValueWithResponse(chunk);
+        sentBytes += chunk.length;
+        setProgress(Math.round(sentBytes / totalBytes * 100));
       }
 
       // Commit: [cmd_byte (1)] + [SHA256 of file (32)] = 33 bytes (hash pre-computed at bundle time)
@@ -297,6 +335,7 @@ document.getElementById('btn').addEventListener('click', async () => {
       await new Promise(r => setTimeout(r, 300));
     }
 
+    setProgress(100);
     document.getElementById('upload-label').textContent = 'Filer uppladdade';
     stepDone('upload');
 
