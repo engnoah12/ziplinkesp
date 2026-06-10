@@ -5,6 +5,27 @@
 # which can leave peripherals (UART, BLE) in an undefined state.
 from machine import reset, reset_cause
 import gc
+import os as _os
+
+# If boot_ok.flag is missing but .bak files exist, the previous update never
+# completed a successful boot — restore backups and reboot into known-good firmware.
+_bak = [f for f in _os.listdir('/') if f.endswith('.bak')]
+try:
+    _os.stat('boot_ok.flag')
+except OSError:
+    if _bak:
+        print("boot_ok.flag missing — rolling back")
+        for _f in _bak:
+            try:
+                _os.rename(_f, _f[:-4])
+                print(f"  restored {_f[:-4]}")
+            except Exception as _e:
+                print(f"  rollback err {_f}: {_e}")
+        with open('boot_ok.flag', 'w') as _f:
+            _f.write('1')
+        reset()
+del _os, _bak
+
 if reset_cause() > 3:
     print("Need hardreset!!!")
 del reset_cause
