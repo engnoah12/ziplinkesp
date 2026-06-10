@@ -16,6 +16,7 @@ Writes:
   - admin.html           (adminpanel, endast vid --admin)
 """
 
+import hashlib
 import json
 import sys
 
@@ -87,6 +88,7 @@ def generate_admin():
   .drag-handle {{ color: #aeaeb2; font-size: 16px; cursor: grab; }}
   .file-name {{ flex: 1; font-family: monospace; color: #1d1d1f; }}
   .file-size {{ color: #6e6e73; font-size: 12px; white-space: nowrap; }}
+  .file-sha  {{ font-family: monospace; font-size: 11px; color: #aeaeb2; }}
   .file-badge {{ font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 6px; background: #e8f0fe; color: #0071e3; white-space: nowrap; }}
   .file-badge.reboot {{ background: #fff0e8; color: #ff6b00; }}
   .remove-btn {{ background: none; border: none; color: #aeaeb2; cursor: pointer; font-size: 18px; line-height: 1; padding: 0 2px; }}
@@ -194,17 +196,17 @@ function onDragOver(e) {{ e.preventDefault(); document.getElementById('dropzone'
 function onDragLeave()  {{ document.getElementById('dropzone').classList.remove('drag-over'); }}
 function onDrop(e)      {{ e.preventDefault(); document.getElementById('dropzone').classList.remove('drag-over'); addFiles(e.dataTransfer.files); }}
 
-function addFiles(fileList) {{
-  Array.from(fileList).forEach(file => {{
-    const reader  = new FileReader();
-    reader.onload = e => {{
-      const idx   = files.findIndex(f => f.name === file.name);
-      const entry = {{ name: file.name, content: e.target.result, size: file.size }};
-      if (idx >= 0) files[idx] = entry; else files.push(entry);
-      renderList();
-    }};
-    reader.readAsText(file);
-  }});
+async function addFiles(fileList) {{
+  await Promise.all(Array.from(fileList).map(async file => {{
+    const content = await file.text();
+    const bytes   = new TextEncoder().encode(content);
+    const hashBuf = await crypto.subtle.digest('SHA-256', bytes);
+    const sha256  = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    const idx     = files.findIndex(f => f.name === file.name);
+    const entry   = {{ name: file.name, content, size: file.size, sha256 }};
+    if (idx >= 0) files[idx] = entry; else files.push(entry);
+  }}));
+  renderList();
 }}
 
 function formatSize(b) {{ return b < 1024 ? b + ' B' : (b / 1024).toFixed(1) + ' kB'; }}
@@ -221,6 +223,7 @@ function renderList() {{
       <span class="drag-handle">⠇</span>
       <span class="file-name">${{f.name}}</span>
       <span class="file-size">${{formatSize(f.size)}}</span>
+      <span class="file-sha" title="${{f.sha256 || ''}}">${{f.sha256 ? f.sha256.slice(0, 8) + '…' : ''}}</span>
       ${{badge}}
       <button class="remove-btn" onclick="removeFile(${{i}})">&#215;</button>
     </div>`;
@@ -252,7 +255,7 @@ async function publish() {{
   btn.innerHTML = '<span class="spinner"></span>Publicerar...';
 
   try {{
-    const bundle = files.map(f => ({{ name: f.name, content: f.content }}));
+    const bundle = files.map(f => ({{ name: f.name, content: f.content, sha256: f.sha256 }}));
     let   html   = TEMPLATE;
     html = html.replace("'__KEY__'", JSON.stringify(key));
     html = html.replace('__FILES__',  JSON.stringify(bundle));
@@ -308,8 +311,9 @@ def generate_customer(files_to_bundle):
         try:
             with open(filename, 'r', encoding='utf-8') as f:
                 content = f.read()
-            bundle.append({'name': filename, 'content': content})
-            print(f"  + {filename} ({len(content)} bytes)")
+            sha256 = hashlib.sha256(content.encode('utf-8')).hexdigest()
+            bundle.append({'name': filename, 'content': content, 'sha256': sha256})
+            print(f"  + {filename} ({len(content)} bytes)  {sha256[:16]}…")
         except FileNotFoundError:
             missing.append(filename)
             print(f"  - {filename} SAKNAS, hoppas över")
