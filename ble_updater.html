@@ -205,7 +205,12 @@ function showSuccess(msg) {
   el.style.display = 'block';
 }
 
-// ── HMAC-SHA256 via Web Crypto ────────────────────────────────────────────────
+// ── Crypto helpers (Web Crypto API) ──────────────────────────────────────────
+
+async function sha256(data) {
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return new Uint8Array(hash);
+}
 
 async function computeHMAC(keyStr, messageStr) {
   const enc = new TextEncoder();
@@ -282,8 +287,12 @@ document.getElementById('btn').addEventListener('click', async () => {
         await chrData.writeValueWithResponse(bytes.slice(offset, offset + CHUNK_SIZE));
       }
 
-      // Last file → commit + reboot, others → commit only
-      await chrCommit.writeValueWithResponse(isLast ? CMD_REBOOT : CMD_COMMIT);
+      // Commit: [cmd_byte (1)] + [SHA256 of file (32)] = 33 bytes
+      const hash = await sha256(bytes);
+      const commitData = new Uint8Array(33);
+      commitData[0] = isLast ? 0x03 : 0x01;
+      commitData.set(hash, 1);
+      await chrCommit.writeValueWithResponse(commitData);
       await new Promise(r => setTimeout(r, 300));
     }
 

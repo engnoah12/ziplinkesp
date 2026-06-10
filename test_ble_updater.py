@@ -120,10 +120,13 @@ async def run(filepath: str, dest: str, key: str, reboot: bool):
 
         print(f"[+] All {total} bytes sent in {chunk_num} chunk(s)")
 
-        # ── Step 5: commit ────────────────────────────────────────────────────
-        cmd = CMD_REBOOT if reboot else CMD_COMMIT
-        print(f"[*] Sending commit (0x{cmd[0]:02X})...")
-        await client.write_gatt_char(CHR_COMMIT, cmd, response=True)
+        # ── Step 5: commit (cmd_byte + SHA256 hash = 33 bytes) ───────────────
+        cmd_byte    = 0x03 if reboot else 0x01
+        file_hash   = hashlib.sha256(file_data).digest()
+        commit_data = bytes([cmd_byte]) + file_hash
+        print(f"[*] SHA256: {file_hash.hex()}")
+        print(f"[*] Sending commit (0x{cmd_byte:02X} + hash)...")
+        await client.write_gatt_char(CHR_COMMIT, commit_data, response=True)
 
         await asyncio.sleep(1.0)
 

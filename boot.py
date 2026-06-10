@@ -7,6 +7,11 @@ from machine import reset, reset_cause
 import gc
 import os as _os
 
+# Remove any .tmp files left by an interrupted transfer before they can cause confusion.
+for _f in [f for f in _os.listdir('/') if f.endswith('.tmp')]:
+    try: _os.remove(_f)
+    except: pass
+
 # If boot_ok.flag is missing but .bak files exist, the previous update never
 # completed a successful boot — restore backups and reboot into known-good firmware.
 _bak = [f for f in _os.listdir('/') if f.endswith('.bak')]
