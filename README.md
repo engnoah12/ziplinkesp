@@ -147,7 +147,9 @@ Tillåter att `.py`-filer på ESP32:n uppdateras trådlöst via BLE — utan USB
 4. Efter godkänd autentisering kan telefonen skicka filer:
    - Filnamn → `UPD_FILENAME`
    - Fildata i ≤200-byte bitar → `UPD_DATA`
-   - Avsluta → `UPD_COMMIT` (`0x01` = spara, `0x02` = avbryt, `0x03` = spara + starta om)
+   - Avsluta → `UPD_COMMIT` (33 bytes: `[cmd (1)]` + `[SHA256 av filen (32)]`)
+     - `0x01` = spara, `0x02` = avbryt, `0x03` = spara + starta om
+   - ESP32 verifierar SHA256 mot mottagen data innan filen skrivs till flash
 5. Flera filer kan skickas i samma session.
 
 Separata nycklar: `HASH_KEY_UPD` är oberoende av `HASH_KEY_NEW` — ett läckt upplåsningsnyckel ger inte åtkomst till uppdatering och vice versa.
@@ -211,6 +213,14 @@ Sidan måste öppnas via `https://` — Supabase Storage tillhandahåller detta 
 - **Android:** Chrome
 - **iOS:** [Bluefy](https://apps.apple.com/app/bluefy-web-ble-browser/id1492822055) (App Store, gratis)
 
+**Testa lokalt utan Supabase:** `localhost` fungerar utan HTTPS i Chrome:
+
+```bash
+python3 bundle_update.py config.py   # generera ziplink_update.html
+python3 -m http.server 8080
+# Öppna http://localhost:8080/ziplink_update.html i Chrome
+```
+
 `ziplink_update.html` och `admin.html` är i `.gitignore` och ska aldrig committas (innehåller nyckeln).
 
 #### Alternativ: generera lokalt
@@ -221,6 +231,29 @@ Om Supabase inte används kan kundsidan genereras lokalt och delas manuellt:
 python3 bundle_update.py                     # alla filer
 python3 bundle_update.py config.py main.py   # bara valda filer
 ```
+
+### Rollback-mekanism
+
+ESP32:n skyddar mot att bli obrukbar vid en trasig eller ofullständig uppdatering:
+
+**Uppdateringsflöde (atomärt):**
+```
+1. Ny fil skrivs till <filnamn>.tmp
+2. SHA256 verifieras mot .tmp
+3. Befintlig fil döps om till <filnamn>.bak
+4. .tmp döps om till <filnamn>  (atomärt swap)
+5. boot_ok.flag tas bort
+6. ESP32 startar om
+```
+
+**Vid uppstart kontrollerar `boot.py`:**
+- `.tmp`-filer → tas bort (avbruten överföring)
+- `boot_ok.flag` saknas + `.bak`-filer finns → rollback: alla `.bak` återställs, flaggan skrivs, omstart
+- `boot_ok.flag` finns → normal start, `.bak`-filer rensas efter lyckad initiering
+
+**`boot_ok.flag` skrivs** av `esp32_elock.py` när all initiering lyckats (`Enter Main Loop: All ok!`).
+
+Filen `boot.py` finns **inte** i BLE-whitelisten och kan aldrig skrivas över trådlöst — rollback-logiken är alltid intakt.
 
 ### Testskript (utan telefon)
 
