@@ -90,6 +90,7 @@ class BLEUpdater:
         self._auth_data     = None
         self._filename_data = None
         self._commit_cmd    = None
+        self._commit_hash   = None  # 32-byte SHA256 from client, validated in _do_commit
 
         # Flags: ThreadSafeFlag is safe to set() from BLE IRQ context
         self._connect_flag = asyncio.ThreadSafeFlag()
@@ -116,7 +117,7 @@ class BLEUpdater:
         ble.gatts_write(h_auth,     bytes(_HMAC_LEN))
         ble.gatts_write(h_filename, bytes(32))
         ble.gatts_write(h_data,     bytes(200))
-        ble.gatts_write(h_commit,   bytes(1))
+        ble.gatts_write(h_commit,   bytes(33))  # cmd (1) + SHA256 (32)
         dbg("UPD: handles set")
 
     # ── IRQ callbacks ─────────────────────────────────────────────────────────
@@ -153,8 +154,9 @@ class BLEUpdater:
         elif value_handle == self._h_filename:
             self._filename_data = self._ble.gatts_read(self._h_filename)
         elif value_handle == self._h_commit:
-            cmd = self._ble.gatts_read(self._h_commit)
-            self._commit_cmd = cmd[0] if cmd else 0
+            data = self._ble.gatts_read(self._h_commit)
+            self._commit_cmd  = data[0] if data else 0
+            self._commit_hash = bytes(data[1:33]) if len(data) >= 33 else None
         self._write_flag.set()
 
     # ── Async task ────────────────────────────────────────────────────────────
@@ -268,19 +270,56 @@ class BLEUpdater:
             red(f"UPD: '{self._filename}' not in allowed-files whitelist")
             return
 
+        tmp = self._filename + '.tmp'
+
+        # Step 0: verify SHA256 before touching the filesystem
+        if self._commit_hash is None:
+            red("UPD: commit missing SHA256 hash, aborting")
+            return
+        import hashlib
+        if hashlib.sha256(self._buf).digest() != self._commit_hash:
+            red("UPD: SHA256 mismatch, aborting")
+            del hashlib
+            return
+        green("UPD: SHA256 OK")
+        del hashlib
+
+        # Step 1: write received buffer to .tmp — original file untouched
+        try:
+            with open(tmp, 'wb') as f:
+                f.write(self._buf)
+        except Exception as e:
+            red(f"UPD: tmp write failed: {e}")
+            try: os.remove(tmp)
+            except: pass
+            return
+
+        # Step 2: verify .tmp size matches buffer (catches partial flash writes)
+        try:
+            if os.stat(tmp)[6] != len(self._buf):
+                red("UPD: size mismatch after write, aborting")
+                os.remove(tmp)
+                return
+        except Exception as e:
+            red(f"UPD: verify failed: {e}")
+            try: os.remove(tmp)
+            except: pass
+            return
+
+        # Step 3: backup original, then atomic swap
         try:
             os.rename(self._filename, self._filename + '.bak')
         except OSError:
             pass  # File doesn't exist yet — first write, no backup needed
-
         try:
-            with open(self._filename, 'wb') as f:
-                f.write(self._buf)
-            green(f"UPD: wrote {len(self._buf)} bytes → {self._filename}")
+            os.rename(tmp, self._filename)
         except Exception as e:
-            red(f"UPD: write failed: {e}")
+            red(f"UPD: rename failed: {e}")
+            try: os.rename(self._filename + '.bak', self._filename)
+            except: pass
             return
 
+        green(f"UPD: committed {len(self._buf)}b → {self._filename}")
         self._buf      = bytearray()
         self._filename = None
         gc.collect()
