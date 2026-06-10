@@ -4,6 +4,49 @@ MicroPython firmware för ESP32 som styr elektromagnetiska dörrlås via QR-kod 
 
 ---
 
+## Initial setup — ny ESP32
+
+### 1. Flasha MicroPython
+
+Ladda ned senaste MicroPython-firmware för ESP32 från [micropython.org](https://micropython.org/download/ESP32_GENERIC/) och flasha:
+
+```bash
+pip install esptool
+esptool.py --chip esp32 --port /dev/cu.usbserial-XXXX erase_flash
+esptool.py --chip esp32 --port /dev/cu.usbserial-XXXX write_flash -z 0x1000 ESP32_GENERIC-*.bin
+```
+
+### 2. Ladda upp firmware-filer
+
+Installera `mpremote` och kopiera alla `.py`-filer till ESP32:n:
+
+```bash
+pip install mpremote
+mpremote connect /dev/cu.usbserial-XXXX cp boot.py main.py esp32_elock.py ble_elock.py ble_updater.py :
+mpremote connect /dev/cu.usbserial-XXXX cp config.py consts.py elock_hmac_sha256.py testHASH.py :
+mpremote connect /dev/cu.usbserial-XXXX cp _cfg_ble.py _cfg_network.py _cfg_serial.py _utils.py _crc_xmodem_table.py :
+```
+
+Skapa och ladda upp nyckelfilerna (kopieras aldrig från repot — innehåller hemligheter):
+
+```bash
+mpremote connect /dev/cu.usbserial-XXXX cp _key_new.py _key_upd.py :
+```
+
+### 3. Verifiera
+
+```bash
+mpremote connect /dev/cu.usbserial-XXXX repl
+# Ctrl+D för soft reboot — du ska se "Enter Main Loop: All ok!"
+```
+
+> **OBS:** `boot.py` ligger utanför BLE-whitelisten och kan aldrig uppdateras trådlöst. Ändringar i `boot.py` måste alltid laddas upp via USB:
+> ```bash
+> mpremote connect /dev/cu.usbserial-XXXX cp boot.py :boot.py
+> ```
+
+---
+
 ## Aktivera/inaktivera funktioner
 
 Alla funktioner styrs med booleanska flaggor i `config.py`:
