@@ -20,14 +20,19 @@ try:
 except OSError:
     if _bak:
         print("boot_ok.flag missing — rolling back")
+        _all_ok = True
         for _f in _bak:
             try:
                 _os.rename(_f, _f[:-4])
                 print(f"  restored {_f[:-4]}")
             except Exception as _e:
                 print(f"  rollback err {_f}: {_e}")
-        with open('boot_ok.flag', 'w') as _f:
-            _f.write('1')
+                _all_ok = False
+        if _all_ok:
+            with open('boot_ok.flag', 'w') as _f:
+                _f.write('1')
+        else:
+            print("  partial rollback — will retry on next boot")
         reset()
 del _os, _bak
 
