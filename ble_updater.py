@@ -269,6 +269,11 @@ class BLEUpdater:
             return
 
         try:
+            os.rename(self._filename, self._filename + '.bak')
+        except OSError:
+            pass  # File doesn't exist yet — first write, no backup needed
+
+        try:
             with open(self._filename, 'wb') as f:
                 f.write(self._buf)
             green(f"UPD: wrote {len(self._buf)} bytes → {self._filename}")
@@ -282,5 +287,9 @@ class BLEUpdater:
 
         if cmd == _CMD_REBOOT:
             green("UPD: rebooting")
+            try:
+                os.remove('boot_ok.flag')
+            except OSError:
+                pass
             import machine
             machine.reset()

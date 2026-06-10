@@ -708,6 +708,17 @@ if BLE_ACTIVE:
     loop.create_task(_ble_monitor())
 
 print("\nEnter Main Loop:\nAll ok!\n")
+try:
+    import os as _os
+    with open('boot_ok.flag', 'w') as _f:
+        _f.write('1')
+    for _bf in [f for f in _os.listdir('/') if f.endswith('.bak')]:
+        try: _os.remove(_bf)
+        except: pass
+    del _os
+except Exception:
+    pass
+
 while True:
     try:
         loop.run_forever()
