@@ -58,6 +58,10 @@ _ST_ERR_WRITE      = const(0xF1)
 _ST_ERR_UNSUPPORT  = const(0xF2)
 _ST_ERR_VERIFY     = const(0xF3)
 _ST_ERR_PN532      = const(0xF5)
+_ST_WIPE_OK        = const(0x11)
+_ST_READ_OK        = const(0x20)
+_ST_BLANK          = const(0x21)
+_ST_ERR_WIPE       = const(0xF4)
 
 
 def _ct_eq(a, b):
@@ -100,6 +104,8 @@ class BLENFCWriter:
         self._h_status    = None
         self._handles     = ()
 
+        self._nfc = None  # set by esp32_elock after PN532 init
+
         # True while a write is in progress — nfc_monitor in esp32_elock pauses
         self.writing_active = False
 
@@ -113,8 +119,13 @@ class BLENFCWriter:
         ble.gatts_write(h_auth,      bytes(_HMAC_LEN))
         ble.gatts_write(h_cmd,       bytes(_CMD_LEN))
         ble.gatts_write(h_challenge, bytes(_NONCE_LEN))
-        ble.gatts_write(h_status,    bytes(1))
+        ble.gatts_write(h_status,    bytes(128))
         dbg("NFC-W: handles set")
+
+    def set_nfc(self, nfc):
+        """Called by esp32_elock after PN532 initialises — shares the single instance."""
+        self._nfc = nfc
+        dbg("NFC-W: nfc instance shared")
 
     # ── IRQ callbacks (called from BLELock._irq — must be fast) ──────────────
 
@@ -130,6 +141,9 @@ class BLENFCWriter:
         self._nonce         = None
         self._authed        = False
         self.writing_active = False
+        # Wake up any waiting coroutines so task() exits the session loop immediately
+        self._auth_flag.set()
+        self._cmd_flag.set()
 
     def on_write(self, value_handle):
         if value_handle == self._h_auth:
@@ -189,10 +203,18 @@ class BLENFCWriter:
                     red(f"NFC-W: bad cmd len {len(cmd) if cmd else 0}")
                     continue
 
-                port_num = cmd[0]
-                expiry   = bytes(cmd[1:15]).decode('ascii', 'ignore')
-                dbg(f"NFC-W: write cmd port={port_num} expiry={expiry}")
-                await self._do_write(port_num, expiry)
+                op = cmd[0]
+                if op == 0x00:
+                    dbg("NFC-W: read cmd")
+                    await self._do_read()
+                elif op == 0xFF:
+                    dbg("NFC-W: wipe cmd")
+                    await self._do_wipe()
+                else:
+                    port_num = op
+                    expiry   = bytes(cmd[1:15]).decode('ascii', 'ignore')
+                    dbg(f"NFC-W: write cmd port={port_num} expiry={expiry}")
+                    await self._do_write(port_num, expiry)
                 gc.collect()
 
             self._authed        = False
@@ -211,15 +233,9 @@ class BLENFCWriter:
         gc.collect()
 
     async def _write_card(self, port_num, expiry):
-        # Init PN532
-        try:
-            from machine import SoftI2C, Pin
-            from nfc_pn532 import PN532
-            i2c = SoftI2C(scl=Pin(17, Pin.PULL_UP), sda=Pin(16, Pin.PULL_UP), freq=100000)
-            nfc = PN532(i2c)
-            nfc.begin()
-        except Exception as e:
-            red(f"NFC-W: PN532 init failed {e}")
+        nfc = self._nfc
+        if nfc is None:
+            red("NFC-W: no PN532 instance")
             self._notify(bytes([_ST_ERR_PN532]))
             return
 
@@ -309,6 +325,125 @@ class BLENFCWriter:
         green(f"NFC-W: OK card={card_type} uid={uid.hex()}")
         ct_byte = 0x01 if sak == 0x08 else (0x02 if sak == 0x18 else 0x03)
         self._notify(bytes([_ST_OK, ct_byte]) + uid)
+
+    # ── Read flow ─────────────────────────────────────────────────────────────
+
+    async def _do_read(self):
+        self.writing_active = True
+        await asyncio.sleep_ms(300)
+        try:
+            await self._read_card()
+        finally:
+            self.writing_active = False
+        gc.collect()
+
+    async def _read_card(self):
+        nfc = self._nfc
+        if nfc is None:
+            red("NFC-W: no PN532 instance")
+            self._notify(bytes([_ST_ERR_PN532]))
+            return
+
+        self._notify(bytes([_ST_WAITING]))
+        import utime
+        deadline = utime.ticks_add(utime.ticks_ms(), NFC_WRITER_CARD_TIMEOUT_S * 1000)
+        uid = tg = sak = None
+        while utime.ticks_diff(deadline, utime.ticks_ms()) > 0:
+            if self._conn is None:
+                del utime; return
+            result = nfc.read_card_full(timeout_ms=300)
+            if result:
+                uid, tg, sak = result
+                break
+            await asyncio.sleep_ms(50)
+        del utime
+
+        if uid is None:
+            self._notify(bytes([_ST_ERR_TIMEOUT]))
+            return
+
+        self._notify(bytes([_ST_DETECTED]))
+        await asyncio.sleep_ms(100)
+        ct_byte = 0x01 if sak == 0x08 else (0x02 if sak == 0x18 else 0x03)
+
+        try:
+            if sak in (0x08, 0x18):
+                text = nfc.mifare_read_text(tg, uid)
+            elif sak == 0x00:
+                text = nfc.read_ndef_text(tg)
+            else:
+                self._notify(bytes([_ST_ERR_UNSUPPORT]))
+                return
+        except Exception as e:
+            red(f"NFC-W: read failed {e}")
+            self._notify(bytes([_ST_ERR_WRITE]))
+            return
+
+        if not text:
+            green(f"NFC-W: blank card uid={uid.hex()}")
+            self._notify(bytes([_ST_BLANK, ct_byte]) + uid)
+            return
+
+        green(f"NFC-W: read ok uid={uid.hex()}")
+        self._notify(bytes([_ST_READ_OK, ct_byte, len(uid)]) + uid + text.encode('utf-8'))
+
+    # ── Wipe flow ─────────────────────────────────────────────────────────────
+
+    async def _do_wipe(self):
+        self.writing_active = True
+        await asyncio.sleep_ms(300)
+        try:
+            await self._wipe_card()
+        finally:
+            self.writing_active = False
+        gc.collect()
+
+    async def _wipe_card(self):
+        nfc = self._nfc
+        if nfc is None:
+            red("NFC-W: no PN532 instance")
+            self._notify(bytes([_ST_ERR_PN532]))
+            return
+
+        self._notify(bytes([_ST_WAITING]))
+        import utime
+        deadline = utime.ticks_add(utime.ticks_ms(), NFC_WRITER_CARD_TIMEOUT_S * 1000)
+        uid = tg = sak = None
+        while utime.ticks_diff(deadline, utime.ticks_ms()) > 0:
+            if self._conn is None:
+                del utime; return
+            result = nfc.read_card_full(timeout_ms=300)
+            if result:
+                uid, tg, sak = result
+                break
+            await asyncio.sleep_ms(50)
+        del utime
+
+        if uid is None:
+            self._notify(bytes([_ST_ERR_TIMEOUT]))
+            return
+
+        self._notify(bytes([_ST_DETECTED]))
+        await asyncio.sleep_ms(100)
+
+        try:
+            if sak in (0x08, 0x18):
+                ok = nfc.mifare_write_text(tg, '', uid)
+            elif sak == 0x00:
+                ok = nfc.write_ndef_text(tg, '')
+            else:
+                self._notify(bytes([_ST_ERR_UNSUPPORT]))
+                return
+        except Exception as e:
+            red(f"NFC-W: wipe failed {e}")
+            ok = False
+
+        if not ok:
+            self._notify(bytes([_ST_ERR_WIPE]))
+            return
+
+        green(f"NFC-W: wiped uid={uid.hex()}")
+        self._notify(bytes([_ST_WIPE_OK]))
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 

@@ -89,10 +89,33 @@ input:disabled { background: #f5f5f7; color: #aeaeb2; }
   -webkit-tap-highlight-color: transparent;
 }
 .port-btn:hover { border-color: #0071e3; color: #0071e3; }
-.port-btn.active {
-  background: #0071e3;
-  border-color: #0071e3;
-  color: #fff;
+.port-btn.active { background: #0071e3; border-color: #0071e3; color: #fff; }
+
+/* Tabs */
+.tab-nav {
+  display: flex;
+  background: #f5f5f7;
+  border-radius: 10px;
+  padding: 3px;
+  margin-bottom: 22px;
+}
+.tab-btn {
+  flex: 1;
+  padding: 8px 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 14px;
+  font-weight: 500;
+  color: #6e6e73;
+  cursor: pointer;
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.tab-btn.active {
+  background: #fff;
+  color: #1d1d1f;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.1);
 }
 
 .btn-primary {
@@ -112,8 +135,6 @@ input:disabled { background: #f5f5f7; color: #aeaeb2; }
 .btn-primary:hover   { background: #0077ed; }
 .btn-primary:active  { background: #006cce; }
 .btn-primary:disabled { opacity: 0.4; cursor: default; }
-.btn-primary.green { background: #34c759; }
-.btn-primary.green:hover { background: #30b350; }
 
 .btn-secondary {
   width: 100%;
@@ -130,10 +151,27 @@ input:disabled { background: #f5f5f7; color: #aeaeb2; }
 }
 .btn-secondary:hover { border-color: #aeaeb2; color: #1d1d1f; }
 
+.btn-danger {
+  width: 100%;
+  padding: 11px;
+  border: 1.5px solid #ffd6d4;
+  border-radius: 12px;
+  background: transparent;
+  color: #ff3b30;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  margin-top: 8px;
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.btn-danger:hover { background: #fff2f2; border-color: #ff3b30; }
+.btn-danger:disabled { opacity: 0.4; cursor: default; }
+
 .divider { border: none; border-top: 1px solid #f0f0f0; margin: 24px 0; }
 
-/* Status steps */
-.steps { display: none; }
+/* Steps */
+.steps { display: none; margin-bottom: 16px; }
 .step {
   display: flex;
   align-items: center;
@@ -164,7 +202,8 @@ input:disabled { background: #f5f5f7; color: #aeaeb2; }
 .step.error  .step-icon { background: #ffeeed; color: #ff3b30; }
 
 .result-box {
-  margin-top: 16px;
+  margin-top: 0;
+  margin-bottom: 12px;
   padding: 14px;
   border-radius: 12px;
   font-size: 14px;
@@ -174,11 +213,50 @@ input:disabled { background: #f5f5f7; color: #aeaeb2; }
 .result-box.success { background: #f0faf4; color: #1a7f4b; }
 .result-box.error   { background: #fff2f2; color: #ff3b30; }
 
+/* Read tab */
+.card-info {
+  background: #f5f5f7;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+.card-type { font-size: 14px; font-weight: 600; color: #1d1d1f; margin-bottom: 3px; }
+
+.record {
+  border: 1.5px solid #e0e0e5;
+  border-radius: 12px;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+}
+.record-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.record-title { font-size: 14px; font-weight: 600; color: #1d1d1f; }
+.badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 20px;
+}
+.badge.valid   { background: #e9f9ee; color: #1a7f4b; }
+.badge.expired { background: #fff2f2; color: #ff3b30; }
+.record-detail { font-size: 13px; color: #6e6e73; margin-top: 3px; }
+
+.empty-msg {
+  text-align: center;
+  color: #aeaeb2;
+  font-size: 14px;
+  padding: 24px 0;
+}
+
 .uid-display {
   font-family: "SF Mono", monospace;
   font-size: 12px;
-  margin-top: 4px;
-  opacity: 0.8;
+  color: #6e6e73;
+  margin-top: 3px;
 }
 
 .spinner {
@@ -197,7 +275,6 @@ input:disabled { background: #f5f5f7; color: #aeaeb2; }
 <body>
 <div class="card">
 
-  <!-- Header -->
   <div class="header">
     <div class="logo">ZipLink</div>
     <div class="subtitle">NFC Adminverktyg</div>
@@ -206,76 +283,89 @@ input:disabled { background: #f5f5f7; color: #aeaeb2; }
     </div>
   </div>
 
-  <!-- Key field (always visible, disabled when connected) -->
   <div class="field">
     <label>Nyckel (HASH_KEY_UPD)</label>
     <input type="password" id="key-input" placeholder="Klistra in nyckeln här…" autocomplete="off">
   </div>
 
-  <!-- Connect button -->
   <div id="section-connect">
     <button class="btn-primary" id="btn-connect">Anslut till ZipLink</button>
   </div>
 
-  <!-- Write form (shown after auth) -->
-  <div id="section-write" class="hidden">
+  <div id="section-auth" class="hidden">
     <hr class="divider">
 
-    <div class="field">
-      <label>Port / Lås</label>
-      <div class="port-group">
-        <button class="port-btn active" data-port="1">Port 1</button>
-        <button class="port-btn" data-port="2">Port 2</button>
-        <button class="port-btn" data-port="3">Port 3</button>
+    <div class="tab-nav">
+      <button class="tab-btn active" id="tab-btn-write" onclick="switchTab('write')">Skriv</button>
+      <button class="tab-btn"        id="tab-btn-read"  onclick="switchTab('read')">Läs</button>
+    </div>
+
+    <!-- WRITE TAB -->
+    <div id="tab-write">
+      <div class="field">
+        <label>Port / Lås</label>
+        <div class="port-group">
+          <button class="port-btn active" data-port="1">Port 1</button>
+          <button class="port-btn"        data-port="2">Port 2</button>
+          <button class="port-btn"        data-port="3">Port 3</button>
+        </div>
       </div>
-    </div>
 
-    <div class="field">
-      <label>Giltig till</label>
-      <div class="date-row">
-        <input type="date" id="expiry-date">
-        <input type="time" id="expiry-time" value="23:59">
+      <div class="field">
+        <label>Giltig till</label>
+        <div class="date-row">
+          <input type="date" id="expiry-date">
+          <input type="time" id="expiry-time" value="23:59">
+        </div>
       </div>
+
+      <div class="steps" id="write-steps">
+        <div class="step" id="s-cmd">   <div class="step-icon" id="i-cmd">1</div>   <span>Skickar kommando</span></div>
+        <div class="step" id="s-wait">  <div class="step-icon" id="i-wait">2</div>  <span>Väntar på kort</span></div>
+        <div class="step" id="s-write"> <div class="step-icon" id="i-write">3</div> <span>Skriver credential</span></div>
+        <div class="step" id="s-verify"><div class="step-icon" id="i-verify">4</div><span>Verifierar</span></div>
+      </div>
+
+      <div id="write-result" class="result-box"></div>
+      <button class="btn-primary" id="btn-write">Skriv till kort</button>
     </div>
 
-    <!-- Status steps -->
-    <div class="steps" id="steps">
-      <div class="step" id="s-cmd"><div class="step-icon" id="i-cmd">1</div><span>Skickar kommando</span></div>
-      <div class="step" id="s-wait"><div class="step-icon" id="i-wait">2</div><span>Väntar på kort</span></div>
-      <div class="step" id="s-write"><div class="step-icon" id="i-write">3</div><span>Skriver credential</span></div>
-      <div class="step" id="s-verify"><div class="step-icon" id="i-verify">4</div><span>Verifierar</span></div>
+    <!-- READ TAB -->
+    <div id="tab-read" class="hidden">
+      <div class="steps" id="read-steps">
+        <div class="step" id="rs-wait"><div class="step-icon" id="ri-wait">1</div><span>Väntar på kort</span></div>
+      </div>
+
+      <div id="read-result"></div>
+
+      <button class="btn-primary" id="btn-read">Läs av kort</button>
+      <button class="btn-danger hidden" id="btn-wipe">Töm hela kortet</button>
     </div>
 
-    <div id="result-box" class="result-box"></div>
-
-    <button class="btn-primary" id="btn-write">Skriv till kort</button>
     <button class="btn-secondary" id="btn-disconnect">Koppla från</button>
   </div>
 
 </div>
-
 <script>
-// ── BLE UUIDs ─────────────────────────────────────────────────────────────────
-const DEVICE_NAME   = 'ZipLink';
 const SVC_UUID      = '6e400021-b5a3-f393-e0a9-e50e24dcca9e';
 const CHR_CHALLENGE = '6e400022-b5a3-f393-e0a9-e50e24dcca9e';
 const CHR_AUTH      = '6e400023-b5a3-f393-e0a9-e50e24dcca9e';
 const CHR_CMD       = '6e400024-b5a3-f393-e0a9-e50e24dcca9e';
 const CHR_STATUS    = '6e400025-b5a3-f393-e0a9-e50e24dcca9e';
 
-// ── State ─────────────────────────────────────────────────────────────────────
-let bleDevice  = null;
-let bleServer  = null;
-let chrCmdRef  = null;
-let selectedPort = 1;
+let bleDevice       = null;
+let bleServer       = null;
+let chrCmdRef       = null;
+let selectedPort    = 1;
 let writeInProgress = false;
+let readInProgress  = false;
 
-// ── Default expiry = 1 year from today ───────────────────────────────────────
-const d = new Date();
-d.setFullYear(d.getFullYear() + 1);
-document.getElementById('expiry-date').value = d.toISOString().slice(0, 10);
+// Default expiry: 1 year from today
+const _d = new Date();
+_d.setFullYear(_d.getFullYear() + 1);
+document.getElementById('expiry-date').value = _d.toISOString().slice(0, 10);
 
-// ── Port selector ─────────────────────────────────────────────────────────────
+// Port selector
 document.querySelectorAll('.port-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.port-btn').forEach(b => b.classList.remove('active'));
@@ -284,55 +374,60 @@ document.querySelectorAll('.port-btn').forEach(btn => {
   });
 });
 
-// ── Crypto helpers ────────────────────────────────────────────────────────────
-function bytesToHex(bytes) {
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+// Tabs
+function switchTab(tab) {
+  document.getElementById('tab-write').classList.toggle('hidden', tab !== 'write');
+  document.getElementById('tab-read').classList.toggle('hidden',  tab !== 'read');
+  document.getElementById('tab-btn-write').classList.toggle('active', tab === 'write');
+  document.getElementById('tab-btn-read').classList.toggle('active',  tab === 'read');
 }
 
-async function computeHMAC(keyStr, messageStr) {
+// Crypto
+function bytesToHex(b) {
+  return Array.from(b).map(x => x.toString(16).padStart(2,'0')).join('');
+}
+async function computeHMAC(keyStr, msg) {
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
-    'raw', enc.encode(keyStr),
-    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+    'raw', enc.encode(keyStr), { name:'HMAC', hash:'SHA-256' }, false, ['sign']
   );
-  return new Uint8Array(await crypto.subtle.sign('HMAC', key, enc.encode(messageStr)));
+  return new Uint8Array(await crypto.subtle.sign('HMAC', key, enc.encode(msg)));
 }
 
-// ── UI helpers ────────────────────────────────────────────────────────────────
-function stepActive(id) {
-  const s = document.getElementById('s-' + id);
-  const i = document.getElementById('i-' + id);
-  s.className = 'step active';
-  i.innerHTML = '<div class="spinner"></div>';
+// Step helpers — write
+const SPINNER = '<div class="spinner"></div>';
+function wStep(id, state, icon) {
+  document.getElementById('s-'+id).className = 'step ' + state;
+  document.getElementById('i-'+id).innerHTML = icon;
 }
-function stepDone(id) {
-  document.getElementById('s-' + id).className = 'step done';
-  document.getElementById('i-' + id).textContent = '✓';
+function wActive(id) { wStep(id, 'active', SPINNER); }
+function wDone(id)   { wStep(id, 'done',   '✓'); }
+function wError(id)  { wStep(id, 'error',  '✕'); }
+function wReset(id, n) { wStep(id, '', n); }
+
+function resetWriteUI() {
+  [['cmd',1],['wait',2],['write',3],['verify',4]].forEach(([id,n]) => wReset(id,n));
+  document.getElementById('write-steps').style.display = 'none';
+  const r = document.getElementById('write-result');
+  r.style.display = 'none'; r.className = 'result-box';
 }
-function stepError(id) {
-  document.getElementById('s-' + id).className = 'step error';
-  document.getElementById('i-' + id).textContent = '✕';
-}
-function stepReset(id, num) {
-  document.getElementById('s-' + id).className = 'step';
-  document.getElementById('i-' + id).textContent = num;
-}
-function showResult(type, html) {
-  const box = document.getElementById('result-box');
-  box.className = 'result-box ' + type;
-  box.innerHTML = html;
-  box.style.display = 'block';
-}
-function hideResult() {
-  document.getElementById('result-box').style.display = 'none';
-}
-function resetSteps() {
-  [['cmd',1],['wait',2],['write',3],['verify',4]].forEach(([id, n]) => stepReset(id, n));
-  document.getElementById('steps').style.display = 'none';
-  hideResult();
+function showWriteResult(type, html) {
+  const r = document.getElementById('write-result');
+  r.className = 'result-box ' + type;
+  r.innerHTML = html;
+  r.style.display = 'block';
 }
 
-// ── Connect ───────────────────────────────────────────────────────────────────
+// Step helpers — read
+function rStep(state, icon) {
+  document.getElementById('rs-wait').className = 'step ' + state;
+  document.getElementById('ri-wait').innerHTML = icon;
+}
+function rActive() { rStep('active', SPINNER); }
+function rDone()   { rStep('done',   '✓'); }
+function rError()  { rStep('error',  '✕'); }
+
+// Connect
 document.getElementById('btn-connect').addEventListener('click', async () => {
   const key = document.getElementById('key-input').value.trim();
   if (!key) { alert('Ange nyckeln för att ansluta.'); return; }
@@ -347,28 +442,27 @@ document.getElementById('btn-connect').addEventListener('click', async () => {
       optionalServices: [SVC_UUID],
     });
     bleServer = await bleDevice.gatt.connect();
-    const service = await bleServer.getPrimaryService(SVC_UUID);
+    const svc        = await bleServer.getPrimaryService(SVC_UUID);
+    const chrChal    = await svc.getCharacteristic(CHR_CHALLENGE);
+    const chrAuth    = await svc.getCharacteristic(CHR_AUTH);
+    chrCmdRef        = await svc.getCharacteristic(CHR_CMD);
+    const chrStatus  = await svc.getCharacteristic(CHR_STATUS);
 
-    const chrChallenge = await service.getCharacteristic(CHR_CHALLENGE);
-    const chrAuth      = await service.getCharacteristic(CHR_AUTH);
-    chrCmdRef          = await service.getCharacteristic(CHR_CMD);
-    const chrStatus    = await service.getCharacteristic(CHR_STATUS);
-
-    // Read nonce (ESP32 writes it on connect; give it 1.5 s)
     await new Promise(r => setTimeout(r, 1500));
-    const nonce = new Uint8Array((await chrChallenge.readValue()).buffer);
+    const nonce = new Uint8Array((await chrChal.readValue()).buffer);
     if (nonce.length !== 16) throw new Error('Oväntad nonce-längd');
 
-    const hmac = await computeHMAC(key, bytesToHex(nonce));
-    await chrAuth.writeValueWithResponse(hmac);
+    await chrAuth.writeValueWithResponse(await computeHMAC(key, bytesToHex(nonce)));
     await new Promise(r => setTimeout(r, 500));
 
-    // Subscribe to status notifications
     await chrStatus.startNotifications();
     chrStatus.addEventListener('characteristicvaluechanged', onStatus);
-
     bleDevice.addEventListener('gattserverdisconnected', onDisconnect);
-    showConnected();
+
+    document.getElementById('section-connect').classList.add('hidden');
+    document.getElementById('section-auth').classList.remove('hidden');
+    document.getElementById('conn-badge').classList.remove('hidden');
+    document.getElementById('key-input').disabled = true;
   } catch (err) {
     btn.disabled = false;
     btn.textContent = 'Anslut till ZipLink';
@@ -378,107 +472,247 @@ document.getElementById('btn-connect').addEventListener('click', async () => {
   }
 });
 
-function showConnected() {
-  document.getElementById('section-connect').classList.add('hidden');
-  document.getElementById('section-write').classList.remove('hidden');
-  document.getElementById('conn-badge').classList.remove('hidden');
-  document.getElementById('key-input').disabled = true;
-}
-
 function onDisconnect() {
-  bleServer = null;
-  chrCmdRef = null;
-  writeInProgress = false;
+  bleServer = null; chrCmdRef = null;
+  writeInProgress = false; readInProgress = false;
   document.getElementById('section-connect').classList.remove('hidden');
-  document.getElementById('section-write').classList.add('hidden');
+  document.getElementById('section-auth').classList.add('hidden');
   document.getElementById('conn-badge').classList.add('hidden');
   document.getElementById('key-input').disabled = false;
-  document.getElementById('btn-connect').disabled = false;
-  document.getElementById('btn-connect').textContent = 'Anslut till ZipLink';
-  resetSteps();
+  const bc = document.getElementById('btn-connect');
+  bc.disabled = false; bc.textContent = 'Anslut till ZipLink';
+  document.getElementById('btn-write').disabled = false;
+  document.getElementById('btn-read').disabled  = false;
+  document.getElementById('btn-wipe').classList.add('hidden');
+  resetWriteUI();
 }
-
 document.getElementById('btn-disconnect').addEventListener('click', () => {
   if (bleServer) bleServer.disconnect();
 });
 
-// ── Write ─────────────────────────────────────────────────────────────────────
+// Write
 document.getElementById('btn-write').addEventListener('click', async () => {
-  if (!chrCmdRef || writeInProgress) return;
+  if (!chrCmdRef || writeInProgress || readInProgress) return;
 
   const dateVal = document.getElementById('expiry-date').value;
   const timeVal = document.getElementById('expiry-time').value;
   if (!dateVal || !timeVal) { alert('Ange datum och tid.'); return; }
 
-  const expiry = dateVal.replace(/-/g, '') + timeVal.replace(':', '') + '00'; // YYYYMMDDHHMMSS
-  if (expiry.length !== 14 || !/^\d{14}$/.test(expiry)) {
-    alert('Ogiltigt datum/tid-format.');
-    return;
-  }
+  const expiry = dateVal.replace(/-/g,'') + timeVal.replace(':','') + '00';
+  if (!/^\d{14}$/.test(expiry)) { alert('Ogiltigt datum/tid-format.'); return; }
 
   writeInProgress = true;
   document.getElementById('btn-write').disabled = true;
-  resetSteps();
-  document.getElementById('steps').style.display = 'block';
+  resetWriteUI();
+  document.getElementById('write-steps').style.display = 'block';
+  wActive('cmd');
 
-  stepActive('cmd');
   try {
     const cmd = new Uint8Array(15);
     cmd[0] = selectedPort;
-    cmd.set(new TextEncoder().encode(expiry).slice(0, 14), 1);
+    cmd.set(new TextEncoder().encode(expiry).slice(0,14), 1);
     await chrCmdRef.writeValueWithResponse(cmd);
-    stepDone('cmd');
-    stepActive('wait');
+    wDone('cmd'); wActive('wait');
   } catch (err) {
-    stepError('cmd');
-    showResult('error', 'Kunde inte skicka kommando: ' + err.message);
+    wError('cmd');
+    showWriteResult('error', 'Kunde inte skicka kommando: ' + err.message);
     writeInProgress = false;
     document.getElementById('btn-write').disabled = false;
   }
 });
 
-// ── Status notifications ──────────────────────────────────────────────────────
-function onStatus(event) {
-  const bytes = new Uint8Array(event.target.value.buffer);
-  const code  = bytes[0];
+// Read
+document.getElementById('btn-read').addEventListener('click', async () => {
+  if (!chrCmdRef || writeInProgress || readInProgress) return;
+  readInProgress = true;
+  document.getElementById('btn-read').disabled = true;
+  document.getElementById('btn-wipe').classList.add('hidden');
+  document.getElementById('read-result').innerHTML = '';
+  document.getElementById('read-steps').style.display = 'block';
+  rActive();
 
-  if (code === 0x01) {                         // waiting for card
-    stepActive('wait');
-  } else if (code === 0x02) {                  // card detected
-    stepDone('wait');
-    stepActive('write');
-  } else if (code === 0x03) {                  // writing
-    stepDone('write');
-    stepActive('verify');
-  } else if (code === 0x10) {                  // success
-    stepDone('verify');
-    const ctNames = { 1: 'Mifare Classic 1K', 2: 'Mifare Classic 4K', 3: 'NTAG / Ultralight' };
-    const ct  = ctNames[bytes[1]] || 'Okänd typ';
-    const uid = Array.from(bytes.slice(2)).map(b => b.toString(16).padStart(2,'0')).join(':').toUpperCase();
-    showResult('success',
-      `<strong>Kortet är programmerat!</strong><br>` +
-      `Port ${selectedPort} · Typ: ${ct}` +
+  try {
+    await chrCmdRef.writeValueWithResponse(new Uint8Array(15)); // byte[0]=0x00 = read
+  } catch (err) {
+    rError();
+    document.getElementById('read-result').innerHTML =
+      `<div class="result-box error" style="display:block">Kunde inte skicka kommando: ${err.message}</div>`;
+    readInProgress = false;
+    document.getElementById('btn-read').disabled = false;
+  }
+});
+
+// Wipe — called from both "Töm hela kortet" button and per-record "Ta bort" button
+async function startWipe() {
+  if (!chrCmdRef || writeInProgress || readInProgress) return;
+  if (!confirm('Är du säker? All data på kortet raderas.')) return;
+
+  readInProgress = true;
+  document.getElementById('btn-wipe').disabled = true;
+  document.getElementById('btn-read').disabled = true;
+  // Show instruction — keep previous result visible so user knows what they're wiping
+  document.getElementById('read-result').insertAdjacentHTML('afterbegin',
+    `<div id="wipe-instruction" class="result-box" style="display:block;background:#fff8ec;color:#7a5800;margin-bottom:12px">` +
+    `Håll kortet mot läsaren igen för att tömma det…</div>`
+  );
+  document.getElementById('read-steps').style.display = 'block';
+  rActive();
+
+  try {
+    const cmd = new Uint8Array(15);
+    cmd[0] = 0xFF; // wipe command
+    await chrCmdRef.writeValueWithResponse(cmd);
+  } catch (err) {
+    rError();
+    const instr = document.getElementById('wipe-instruction');
+    if (instr) instr.remove();
+    document.getElementById('read-result').innerHTML =
+      `<div class="result-box error" style="display:block">Kunde inte skicka kommando: ${err.message}</div>`;
+    readInProgress = false;
+    document.getElementById('btn-read').disabled = false;
+    document.getElementById('btn-wipe').disabled = false;
+  }
+}
+document.getElementById('btn-wipe').addEventListener('click', startWipe);
+
+// Status notifications
+const CT_NAMES = { 1:'Mifare Classic 1K', 2:'Mifare Classic 4K', 3:'NTAG / Ultralight' };
+const ERR_MSGS = {
+  0xF0: 'Inget kort detekterades inom tidsgränsen.',
+  0xF1: 'Skrivning misslyckades.',
+  0xF2: 'Korttypen stöds inte.',
+  0xF3: 'Verifiering misslyckades — credential kunde inte läsas tillbaka.',
+  0xF4: 'Tömning av kortet misslyckades.',
+  0xF5: 'PN532-läsaren svarade inte.',
+};
+
+function onStatus(event) {
+  const b    = new Uint8Array(event.target.value.buffer);
+  const code = b[0];
+
+  // ── Write-flow ──────────────────────────────────────────────────────────────
+  if (code === 0x01 && writeInProgress) { wActive('wait');                    return; }
+  if (code === 0x02 && writeInProgress) { wDone('wait');  wActive('write');   return; }
+  if (code === 0x03 && writeInProgress) { wDone('write'); wActive('verify');  return; }
+
+  if (code === 0x10) {
+    wDone('verify');
+    const uid = Array.from(b.slice(2)).map(x => x.toString(16).padStart(2,'0')).join(':').toUpperCase();
+    showWriteResult('success',
+      `<strong>Kortet är programmerat!</strong><br>Port ${selectedPort} · Typ: ${CT_NAMES[b[1]]||'Okänd'}` +
       `<div class="uid-display">UID: ${uid}</div>`
     );
     writeInProgress = false;
     document.getElementById('btn-write').disabled = false;
-  } else {
-    // Error
-    const errorMessages = {
-      0xF0: 'Inget kort detekterades inom tidsgränsen.',
-      0xF1: 'Skrivning till kortet misslyckades.',
-      0xF2: 'Korttypen stöds inte (SAK okänd).',
-      0xF3: 'Verifiering misslyckades — credential kunde inte läsas tillbaka.',
-      0xF5: 'PN532-läsaren svarade inte.',
-    };
-    const activeStep = ['cmd','wait','write','verify'].find(
+    return;
+  }
+
+  // ── Read-flow ───────────────────────────────────────────────────────────────
+  if (code === 0x01 && readInProgress) { rActive(); return; }
+  if (code === 0x02 && readInProgress) { rDone();   return; }
+
+  if (code === 0x11) { // wipe OK
+    rDone();
+    const instr = document.getElementById('wipe-instruction');
+    if (instr) instr.remove();
+    document.getElementById('read-result').innerHTML =
+      `<div class="result-box success" style="display:block"><strong>Kortet är tömt.</strong></div>`;
+    document.getElementById('btn-wipe').classList.add('hidden');
+    document.getElementById('btn-wipe').disabled = false;
+    readInProgress = false;
+    document.getElementById('btn-read').disabled = false;
+    return;
+  }
+
+  if (code === 0x20) { // read OK — credential found
+    rDone();
+    const uidLen  = b[2];
+    const uid     = b.slice(3, 3 + uidLen);
+    const credRaw = new TextDecoder().decode(b.slice(3 + uidLen));
+    showReadResult(b[1], uid, credRaw);
+    readInProgress = false;
+    document.getElementById('btn-read').disabled = false;
+    return;
+  }
+
+  if (code === 0x21) { // read OK — card is blank
+    rDone();
+    const uid    = b.slice(2);
+    const uidStr = Array.from(uid).map(x => x.toString(16).padStart(2,'0')).join(':').toUpperCase();
+    document.getElementById('read-result').innerHTML =
+      `<div class="card-info">` +
+      `<div class="card-type">${CT_NAMES[b[1]]||'Okänd'}</div>` +
+      `<div class="uid-display">UID: ${uidStr}</div></div>` +
+      `<div class="empty-msg">Kortet är tomt — ingen credential sparad</div>`;
+    document.getElementById('btn-wipe').classList.add('hidden');
+    readInProgress = false;
+    document.getElementById('btn-read').disabled = false;
+    return;
+  }
+
+  // ── Error (both flows) ─────────────────────────────────────────────────────
+  const msg = ERR_MSGS[code] || `Okänt fel (0x${code.toString(16)})`;
+
+  if (writeInProgress) {
+    const active = ['cmd','wait','write','verify'].find(
       id => document.getElementById('s-'+id).classList.contains('active')
     );
-    if (activeStep) stepError(activeStep);
-    showResult('error', errorMessages[code] || `Okänt fel (0x${code.toString(16)})`);
+    if (active) wError(active);
+    showWriteResult('error', msg);
     writeInProgress = false;
     document.getElementById('btn-write').disabled = false;
+  } else if (readInProgress) {
+    rError();
+    document.getElementById('read-result').innerHTML =
+      `<div class="result-box error" style="display:block">${msg}</div>`;
+    readInProgress = false;
+    document.getElementById('btn-read').disabled = false;
+    document.getElementById('btn-wipe').disabled = false;
   }
+}
+
+function showReadResult(ctByte, uid, credRaw) {
+  const uidStr = Array.from(uid).map(x => x.toString(16).padStart(2,'0')).join(':').toUpperCase();
+  const cardHtml =
+    `<div class="card-info">` +
+    `<div class="card-type">${CT_NAMES[ctByte]||'Okänd'}</div>` +
+    `<div class="uid-display">UID: ${uidStr}</div></div>`;
+
+  if (!credRaw || !credRaw.includes('::')) {
+    document.getElementById('read-result').innerHTML =
+      cardHtml + `<div class="empty-msg">Kortet är tomt — ingen credential sparad</div>`;
+    document.getElementById('btn-wipe').classList.add('hidden');
+    return;
+  }
+
+  const data     = credRaw.slice(0, credRaw.indexOf('::'));
+  const parts    = data.split('/');
+  const dateStr  = parts[0] || '';
+  const portNum  = (parts[1] || '').replace('p', '') || '?';
+
+  let expiryDisplay = dateStr;
+  let isExpired     = false;
+  if (dateStr.length === 14) {
+    const y=dateStr.slice(0,4), mo=dateStr.slice(4,6), dd=dateStr.slice(6,8);
+    const hh=dateStr.slice(8,10), mm=dateStr.slice(10,12), ss=dateStr.slice(12,14);
+    isExpired     = new Date(`${y}-${mo}-${dd}T${hh}:${mm}:${ss}`) < new Date();
+    expiryDisplay = `${y}-${mo}-${dd} ${hh}:${mm}`;
+  }
+
+  document.getElementById('read-result').innerHTML =
+    cardHtml +
+    `<div class="record">` +
+    `<div class="record-header">` +
+    `<span class="record-title">ZipLink Credential</span>` +
+    `<span class="badge ${isExpired?'expired':'valid'}">${isExpired?'Utgången':'Giltig'}</span>` +
+    `</div>` +
+    `<div class="record-detail">Port: ${portNum}</div>` +
+    `<div class="record-detail">Giltig till: ${expiryDisplay}</div>` +
+    `<button class="btn-danger" style="margin-top:10px" onclick="startWipe()">Ta bort</button>` +
+    `</div>`;
+
+  document.getElementById('btn-wipe').classList.remove('hidden');
+  document.getElementById('btn-wipe').disabled = false;
 }
 </script>
 </body>

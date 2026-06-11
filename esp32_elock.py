@@ -629,6 +629,15 @@ if (
             dbg("BLE date not found, creating...", " ")
             NVS("bledate").set_i32("last", 0)
             NVS("bledate").commit()
+
+    # Will create 'nfcdate' if missing (NFC credential expiry replay protection)
+    try:
+        NVS("nfcdate").get_i32("last")
+    except OSError as ose:
+        if ose.args[0] == -4354:
+            dbg("NFC date not found, creating...", " ")
+            NVS("nfcdate").set_i32("last", 0)
+            NVS("nfcdate").commit()
     del NVS
     dbg("Ok!")
 gc.collect()
@@ -727,6 +736,8 @@ if NFC_ACTIVE:
             nfc = PN532(i2c)
             fw  = nfc.begin()
             green(f"NFC: PN5{fw['ic']:02X} v{fw['ver']}.{fw['rev']}")
+            if BLE_ACTIVE and _nfc_writer is not None:
+                _nfc_writer.set_nfc(nfc)
         except Exception as e:
             red(f"NFC: init failed {e}")
             return
@@ -734,8 +745,10 @@ if NFC_ACTIVE:
         _last_uid = None
         while True:
             try:
-                # Pause while the BLE NFC writer is programming a card
-                if BLE_ACTIVE and _nfc_writer is not None and _nfc_writer.writing_active:
+                # Pause while admin BLE session active or a card is being programmed
+                if BLE_ACTIVE and _nfc_writer is not None and \
+                   (_nfc_writer.writing_active or
+                    (_nfc_writer._authed and _nfc_writer._conn is not None)):
                     await asyncio.sleep_ms(200)
                     continue
                 result = await check_access(nfc, timeout_ms=200)
