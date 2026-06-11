@@ -55,6 +55,7 @@ Alla funktioner styrs med booleanska flaggor i `config.py`:
 |---|---|
 | `DEBUG` | Verbose utskrift till seriell konsol |
 | `SERIAL_ACTIVE` | Aktiverar QR-kodläsaren (GM60 via UART) — **måste vara `False` vid NFC-testning** (GM60 och PN532 delar GPIO 16/17) |
+| `NFC_ACTIVE` | Aktiverar NFC-upplåsning via PN532 — **måste vara `False` om `SERIAL_ACTIVE = True`** |
 | `PORTS_ACTIVE` | Aktiverar PWM-utmatning till lås |
 | `BLE_ACTIVE` | Aktiverar BLE-upplåsning (se nedan) |
 | `NVS_ACTIVE` | Lagrar tidsstämplar i flash (replay-skydd) |
@@ -344,13 +345,19 @@ Tillåter upplåsning via NFC-tap med telefon eller kort — utan app, utan BLE-
 
 ### Skriva credential på ett NFC-kort
 
-```python
-# Kör i MicroPython REPL
-exec(open('nfc_write_credential.py').read())
-# Håll kortet mot läsaren — credential skrivs och verifieras automatiskt
+Använd adminverktyget `nfc_admin.html` — ett webbgränssnitt som kommunicerar med ESP32 via Web Bluetooth (BLE):
+
+```bash
+python3 -m http.server 8080
+# Öppna http://localhost:8080/nfc_admin.html i Chrome
 ```
 
-Ändra `EXPIRY` och `PORT` i `nfc_write_credential.py` för att anpassa credential.
+1. Klistra in `HASH_KEY_UPD` och tryck **Anslut till ZipLink**
+2. Välj fliken **Skriv** — ange utgångsdatum och tryck **Skriv till kort**
+3. Håll kortet mot PN532-läsaren
+4. Välj fliken **Läs** för att läsa av eller tömma ett befintligt kort
+
+> **Krav:** Chrome (desktop eller Android). Sidan måste köras på `localhost` eller `https://`.
 
 ### Credential-format
 
