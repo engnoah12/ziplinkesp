@@ -141,9 +141,6 @@ class BLENFCWriter:
         self._nonce         = None
         self._authed        = False
         self.writing_active = False
-        # Wake up any waiting coroutines so task() exits the session loop immediately
-        self._auth_flag.set()
-        self._cmd_flag.set()
 
     def on_write(self, value_handle):
         if value_handle == self._h_auth:
