@@ -63,27 +63,29 @@ _SERVICE = (
 
 
 class BLELock:
-    def __init__(self, updater=None):
+    def __init__(self, updater=None, nfc_writer=None):
         self._ble = bluetooth.BLE()
         self._ble.active(True)
         self._ble.config(mtu=256)
         self._ble.irq(self._irq)
 
-        self._updater = updater
+        self._updater    = updater
+        self._nfc_writer = nfc_writer
 
-        # Register the lock service, and optionally the updater service, in one call.
-        # gatts_register_services must be called exactly once — subsequent calls
-        # replace the entire service table.
+        # Register all services in one gatts_register_services call — subsequent
+        # calls would replace the entire service table.
+        svcs = [_SERVICE]
+        if updater    is not None: svcs.append(updater.SERVICE)
+        if nfc_writer is not None: svcs.append(nfc_writer.SERVICE)
+
+        handles = self._ble.gatts_register_services(tuple(svcs))
+        (self._h_challenge, self._h_response) = handles[0]
+        idx = 1
         if updater is not None:
-            (lock_handles, upd_handles) = self._ble.gatts_register_services(
-                (_SERVICE, updater.SERVICE)
-            )
-            (self._h_challenge, self._h_response) = lock_handles
-            updater.set_handles(self._ble, *upd_handles)
-        else:
-            ((self._h_challenge, self._h_response),) = self._ble.gatts_register_services(
-                (_SERVICE,)
-            )
+            updater.set_handles(self._ble, *handles[idx])
+            idx += 1
+        if nfc_writer is not None:
+            nfc_writer.set_handles(self._ble, *handles[idx])
 
         # Pre-allocate a 31-byte buffer for RESPONSE so MicroPython doesn't truncate
         # incoming writes to the default 20-byte attribute buffer.
@@ -123,6 +125,8 @@ class BLELock:
             self._connect_flag.set()
             if self._updater is not None:
                 self._updater.on_connect(conn_handle)
+            if self._nfc_writer is not None:
+                self._nfc_writer.on_connect(conn_handle)
             dbg("BLE: connected")
 
         elif event == _IRQ_CENTRAL_DISCONNECT:
@@ -130,6 +134,8 @@ class BLELock:
             self._nonce = None  # Invalidate nonce so a late write can't be processed
             if self._updater is not None:
                 self._updater.on_disconnect()
+            if self._nfc_writer is not None:
+                self._nfc_writer.on_disconnect()
             # During a lockout, task() is responsible for calling _advertise() after
             # the pause — skip it here so we don't re-open advertising too early.
             if not self._locked_out:
@@ -138,9 +144,12 @@ class BLELock:
 
         elif event == _IRQ_GATTS_WRITE:
             _, value_handle = data
-            # Route writes addressed to the updater service before checking lock handles
+            # Route writes addressed to secondary services before checking lock handles
             if self._updater is not None and value_handle in self._updater._handles:
                 self._updater.on_write(value_handle)
+                return
+            if self._nfc_writer is not None and value_handle in self._nfc_writer._handles:
+                self._nfc_writer.on_write(value_handle)
                 return
             # Only process writes to RESPONSE, and only if we have an active nonce
             if value_handle == self._h_response and self._nonce is not None:
@@ -177,7 +186,8 @@ class BLELock:
             except asyncio.TimeoutError:
                 # If the updater has an active session the phone is uploading files,
                 # not unlocking — wait for it to finish rather than killing the connection.
-                if self._updater is not None and self._updater._authed:
+                if (self._updater    is not None and self._updater._authed) or \
+                   (self._nfc_writer is not None and self._nfc_writer._authed):
                     while self._conn is not None:
                         await asyncio.sleep(1)
                     continue

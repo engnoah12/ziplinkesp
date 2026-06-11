@@ -691,10 +691,14 @@ if BLE_ACTIVE:
     dbg("BLE-Init")
     from ble_elock import BLELock
     from ble_updater import BLEUpdater
-    _ble_updater = BLEUpdater()
-    _ble_lock = BLELock(updater=_ble_updater)
+    from ble_nfc_writer import BLENFCWriter
+    _ble_updater  = BLEUpdater()
+    _nfc_writer   = BLENFCWriter() if NFC_ACTIVE else None
+    _ble_lock     = BLELock(updater=_ble_updater, nfc_writer=_nfc_writer)
     loop.create_task(_ble_lock.task())
     loop.create_task(_ble_updater.task())
+    if _nfc_writer is not None:
+        loop.create_task(_nfc_writer.task())
 
     async def _ble_monitor():
         # Bridge between the BLE auth result and the existing unlock/blink logic.
@@ -730,6 +734,10 @@ if NFC_ACTIVE:
         _last_uid = None
         while True:
             try:
+                # Pause while the BLE NFC writer is programming a card
+                if BLE_ACTIVE and _nfc_writer is not None and _nfc_writer.writing_active:
+                    await asyncio.sleep_ms(200)
+                    continue
                 result = await check_access(nfc, timeout_ms=200)
                 if result and result['granted']:
                     uid = result['uid']
