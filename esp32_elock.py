@@ -27,16 +27,17 @@ from _cfg_serial import (
 )
 from _cfg_network import NET_SSID, NET_PASSWD, NET_HIDDEN
 from _utils import TAIL, WRITEZ, blue, dbg, green, red, tb, ROK,free
-from config import BLE_ACTIVE, NVS_ACTIVE, PORTS_ACTIVE, SERIAL_ACTIVE, TUNE_ACTIVE, WIFI_ACTIVE
+from config import BLE_ACTIVE, NFC_ACTIVE, NVS_ACTIVE, PORTS_ACTIVE, SERIAL_ACTIVE, TUNE_ACTIVE, WIFI_ACTIVE
 from micropython import const
 
 #########################################
-## Find baudrate
-uart=UART(2)
-print("Find baudrate")
-import _init_gm60
-del _init_gm60
-gc.collect()
+## Find baudrate (only when GM60 scanner is active)
+if SERIAL_ACTIVE:
+    uart=UART(2)
+    print("Find baudrate")
+    import _init_gm60
+    del _init_gm60
+    gc.collect()
 
 #########################################
 ## ********* pre_Main Start *************#
@@ -628,6 +629,15 @@ if (
             dbg("BLE date not found, creating...", " ")
             NVS("bledate").set_i32("last", 0)
             NVS("bledate").commit()
+
+    # Will create 'nfcdate' if missing (NFC credential expiry replay protection)
+    try:
+        NVS("nfcdate").get_i32("last")
+    except OSError as ose:
+        if ose.args[0] == -4354:
+            dbg("NFC date not found, creating...", " ")
+            NVS("nfcdate").set_i32("last", 0)
+            NVS("nfcdate").commit()
     del NVS
     dbg("Ok!")
 gc.collect()
@@ -690,10 +700,14 @@ if BLE_ACTIVE:
     dbg("BLE-Init")
     from ble_elock import BLELock
     from ble_updater import BLEUpdater
-    _ble_updater = BLEUpdater()
-    _ble_lock = BLELock(updater=_ble_updater)
+    from ble_nfc_writer import BLENFCWriter
+    _ble_updater  = BLEUpdater()
+    _nfc_writer   = BLENFCWriter() if NFC_ACTIVE else None
+    _ble_lock     = BLELock(updater=_ble_updater, nfc_writer=_nfc_writer)
     loop.create_task(_ble_lock.task())
     loop.create_task(_ble_updater.task())
+    if _nfc_writer is not None:
+        loop.create_task(_nfc_writer.task())
 
     async def _ble_monitor():
         # Bridge between the BLE auth result and the existing unlock/blink logic.
@@ -706,6 +720,53 @@ if BLE_ACTIVE:
             loop.create_task(tuneandUnlock(ports))
 
     loop.create_task(_ble_monitor())
+
+if NFC_ACTIVE:
+    print(" NFC", end="")
+    dbg("NFC-Init")
+
+    async def _nfc_monitor():
+        from machine import SoftI2C, Pin
+        from nfc_pn532 import PN532, PN532Error
+        from nfc_access import check_access
+        import gc
+
+        try:
+            i2c = SoftI2C(scl=Pin(17, Pin.PULL_UP), sda=Pin(16, Pin.PULL_UP), freq=100000)
+            nfc = PN532(i2c)
+            fw  = nfc.begin()
+            green(f"NFC: PN5{fw['ic']:02X} v{fw['ver']}.{fw['rev']}")
+            if BLE_ACTIVE and _nfc_writer is not None:
+                _nfc_writer.set_nfc(nfc)
+        except Exception as e:
+            red(f"NFC: init failed {e}")
+            return
+
+        _last_uid = None
+        while True:
+            try:
+                # Pause while admin BLE session active or a card is being programmed
+                if BLE_ACTIVE and _nfc_writer is not None and \
+                   (_nfc_writer.writing_active or
+                    (_nfc_writer._authed and _nfc_writer._conn is not None)):
+                    await asyncio.sleep_ms(200)
+                    continue
+                result = await check_access(nfc, timeout_ms=200)
+                if result and result['granted']:
+                    uid = result['uid']
+                    if uid != _last_uid:
+                        _last_uid = uid
+                        green(f"NFC: access granted ports={result['ports']}")
+                        loop.create_task(gmBlink(0b010, HOLD_BLINK_TIME_MS, True))
+                        loop.create_task(tuneandUnlock(result['ports']))
+                elif not result:
+                    _last_uid = None
+                gc.collect()
+            except Exception as e:
+                red(f"NFC: error {e}")
+            await asyncio.sleep_ms(100)
+
+    loop.create_task(_nfc_monitor())
 
 print("\nEnter Main Loop:\nAll ok!\n")
 try:

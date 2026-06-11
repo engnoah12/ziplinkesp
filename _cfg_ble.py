@@ -50,3 +50,18 @@ UPD_ALLOWED_FILES = (
     '_cfg_ble.py', '_cfg_network.py', '_cfg_serial.py', '_utils.py',
     '_crc_xmodem_table.py',
 )
+
+# ── NFC Writer service ────────────────────────────────────────────────────────
+# Admin-only BLE service for programming ZipLink credentials onto NFC cards/tags.
+# Reuses HASH_KEY_UPD for authentication (same key as OTA updater).
+# UUIDs: same base as lock/updater, sub-range 21–25.
+
+NFC_WRITER_SVC_UUID: str      = const('6E400021-B5A3-F393-E0A9-E50E24DCCA9E')
+NFC_WRITER_CHR_CHALLENGE: str = const('6E400022-B5A3-F393-E0A9-E50E24DCCA9E')
+NFC_WRITER_CHR_AUTH: str      = const('6E400023-B5A3-F393-E0A9-E50E24DCCA9E')
+NFC_WRITER_CHR_CMD: str       = const('6E400024-B5A3-F393-E0A9-E50E24DCCA9E')
+NFC_WRITER_CHR_STATUS: str    = const('6E400025-B5A3-F393-E0A9-E50E24DCCA9E')
+
+NFC_WRITER_AUTH_TIMEOUT_S: int = const(15)   # Seconds to send HMAC after connect
+NFC_WRITER_CMD_TIMEOUT_S: int  = const(60)   # Seconds to receive a write command after auth
+NFC_WRITER_CARD_TIMEOUT_S: int = const(30)   # Seconds to present a card to the PN532
