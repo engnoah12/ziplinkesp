@@ -447,6 +447,11 @@ document.getElementById('btn-connect').addEventListener('click', async () => {
     await chrAuth.writeValueWithResponse(await computeHMAC(key, bytesToHex(nonce)));
     await new Promise(r => setTimeout(r, 500));
 
+    let authOk = bleServer && bleServer.connected;
+    if (!authOk) {
+      throw Object.assign(new Error('Fel nyckel — kontrollera att nyckeln stämmer och försök igen.'), { _wrongKey: true });
+    }
+
     await chrStatus.startNotifications();
     chrStatus.addEventListener('characteristicvaluechanged', onStatus);
     bleDevice.addEventListener('gattserverdisconnected', onDisconnect);
@@ -458,8 +463,14 @@ document.getElementById('btn-connect').addEventListener('click', async () => {
   } catch (err) {
     btn.disabled = false;
     btn.textContent = 'Anslut till ZipLink';
-    if (err.name !== 'NotFoundError' && err.name !== 'NotAllowedError') {
-      alert('Anslutning misslyckades: ' + err.message);
+    if (err._wrongKey) {
+      alert(err.message);
+    } else if (err.name !== 'NotFoundError' && err.name !== 'NotAllowedError') {
+      if (err.message && err.message.includes('disconnected')) {
+        alert('Fel nyckel — kontrollera att nyckeln stämmer och försök igen.');
+      } else {
+        alert('Anslutning misslyckades: ' + err.message);
+      }
     }
   }
 });

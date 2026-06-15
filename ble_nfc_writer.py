@@ -141,6 +141,8 @@ class BLENFCWriter:
         self._nonce         = None
         self._authed        = False
         self.writing_active = False
+        self._auth_flag     = asyncio.ThreadSafeFlag()
+        self._cmd_flag      = asyncio.ThreadSafeFlag()
 
     def on_write(self, value_handle):
         if value_handle == self._h_auth:
