@@ -158,8 +158,16 @@ class BLELock:
 
     def _advertise(self):
         name = BLE_DEVICE_NAME.encode()
-        # Standard BLE advertising packet: Flags (LE General Discoverable) + Complete Local Name
-        adv = bytes([0x02, 0x01, 0x06, len(name) + 1, 0x09]) + name
+        # SVC UUID 6e400011-b5a3-f393-e0a9-e50e24dcca9e in little-endian for the ad packet.
+        # Chrome filters reliably on service UUID but not on name, so we include it here.
+        # Total packet: 3 (flags) + 9 (name) + 18 (uuid) = 30 bytes — within the 31-byte limit.
+        svc = bytes([0x9e, 0xca, 0xdc, 0x24, 0x0e, 0xe5, 0xa9, 0xe0,
+                     0x93, 0xf3, 0xa3, 0xb5, 0x11, 0x00, 0x40, 0x6e])
+        adv = (
+            bytes([0x02, 0x01, 0x06])
+            + bytes([len(name) + 1, 0x09]) + name
+            + bytes([len(svc) + 1, 0x07]) + svc
+        )
         self._ble.gap_advertise(BLE_ADV_INTERVAL_US, adv_data=adv)
         dbg("BLE: advertising")
 
