@@ -299,8 +299,7 @@ document.getElementById('btn').addEventListener('click', async () => {
     // Step 1: connect
     stepActive('connect');
     const device = await navigator.bluetooth.requestDevice({
-      acceptAllDevices: true,
-      optionalServices: [SVC_UUID],
+      filters: [{ name: 'Ziplink', services: [SVC_UUID] }],
     });
     server  = await device.gatt.connect();
     service = await server.getPrimaryService(SVC_UUID);
