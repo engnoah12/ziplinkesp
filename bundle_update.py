@@ -398,6 +398,10 @@ elif '--admin' in flags:
 elif args:
     print(f"[*] Buntar {len(args)} angiven(a) fil(er):")
     generate_customer(args)
+    print()
+    generate_config()
 else:
     print(f"[*] Buntar alla {len(ALL_FILES)} filer:")
     generate_customer(ALL_FILES)
+    print()
+    generate_config()
