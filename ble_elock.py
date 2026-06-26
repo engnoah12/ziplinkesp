@@ -66,7 +66,7 @@ class BLELock:
     def __init__(self, updater=None, nfc_writer=None):
         self._ble = bluetooth.BLE()
         self._ble.active(True)
-        self._ble.config(mtu=256)
+        self._ble.config(gap_name=BLE_DEVICE_NAME, mtu=256)
         self._ble.irq(self._irq)
 
         self._updater    = updater
