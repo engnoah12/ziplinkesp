@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>ZipLink — Inställningar</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #f5f5f7;
+    min-height: 100dvh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+
+  .card {
+    background: #fff;
+    border-radius: 20px;
+    padding: 40px 32px;
+    max-width: 420px;
+    width: 100%;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+  }
+
+  .logo {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+    color: #1d1d1f;
+    margin-bottom: 6px;
+    text-align: center;
+  }
+
+  .subtitle {
+    font-size: 14px;
+    color: #6e6e73;
+    margin-bottom: 32px;
+    text-align: center;
+  }
+
+  .settings {
+    margin-bottom: 28px;
+  }
+
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 0;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  .toggle-row:last-child { border-bottom: none; }
+
+  .toggle-info { flex: 1; margin-right: 16px; }
+  .toggle-label { font-size: 15px; font-weight: 500; color: #1d1d1f; }
+  .toggle-desc  { font-size: 13px; color: #6e6e73; margin-top: 2px; line-height: 1.4; }
+
+  /* iOS-style switch */
+  .switch { position: relative; width: 51px; height: 31px; flex-shrink: 0; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider {
+    position: absolute; inset: 0;
+    background: #e5e5ea; border-radius: 31px;
+    transition: background 0.2s; cursor: pointer;
+  }
+  .slider::before {
+    content: ''; position: absolute;
+    width: 27px; height: 27px; left: 2px; top: 2px;
+    background: #fff; border-radius: 50%;
+    transition: transform 0.2s;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+  }
+  input:checked + .slider { background: #34c759; }
+  input:checked + .slider::before { transform: translateX(20px); }
+
+  #btn {
+    width: 100%;
+    padding: 16px;
+    border: none;
+    border-radius: 12px;
+    background: #0071e3;
+    color: #fff;
+    font-size: 17px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, opacity 0.2s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #btn:hover    { background: #0077ed; }
+  #btn:active   { background: #006cce; }
+  #btn:disabled { opacity: 0.45; cursor: default; }
+
+  .steps {
+    margin-top: 24px;
+    text-align: left;
+    display: none;
+  }
+
+  .step {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    font-size: 15px;
+    color: #6e6e73;
+    border-bottom: 1px solid #f0f0f0;
+    transition: color 0.3s;
+  }
+  .step:last-child { border-bottom: none; }
+  .step.active { color: #1d1d1f; font-weight: 500; }
+  .step.done   { color: #34c759; }
+  .step.error  { color: #ff3b30; }
+
+  .icon {
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; flex-shrink: 0;
+    background: #f0f0f0; color: #aeaeb2;
+    transition: background 0.3s, color 0.3s;
+  }
+  .step.active .icon { background: #e8f0fe; color: #0071e3; }
+  .step.done   .icon { background: #e9f9ee; color: #34c759; }
+  .step.error  .icon { background: #ffeeed; color: #ff3b30; }
+
+  .error-msg {
+    margin-top: 20px; padding: 14px;
+    background: #fff2f2; border-radius: 10px;
+    font-size: 14px; color: #ff3b30;
+    display: none; line-height: 1.5;
+  }
+
+  .success-msg {
+    margin-top: 20px; padding: 14px;
+    background: #f0faf4; border-radius: 10px;
+    font-size: 14px; color: #34c759; font-weight: 500;
+    display: none; text-align: center; line-height: 1.5;
+  }
+
+  .spinner {
+    width: 14px; height: 14px;
+    border: 2px solid #0071e3; border-top-color: transparent;
+    border-radius: 50%; animation: spin 0.7s linear infinite;
+    display: inline-block;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">ZipLink</div>
+  <div class="subtitle">Enhetsinställningar</div>
+
+  <div class="settings" id="settings"></div>
+
+  <button id="btn">Spara inställningar</button>
+
+  <div class="steps" id="steps">
+    <div class="step" id="s-connect"><div class="icon" id="i-connect">1</div><span>Ansluter till enhet</span></div>
+    <div class="step" id="s-auth">   <div class="icon" id="i-auth">2</div>   <span>Autentiserar</span></div>
+    <div class="step" id="s-upload"> <div class="icon" id="i-upload">3</div> <span>Sparar inställningar</span></div>
+    <div class="step" id="s-done">   <div class="icon" id="i-done">4</div>   <span>Startar om enheten</span></div>
+  </div>
+
+  <div class="error-msg"   id="error-msg"></div>
+  <div class="success-msg" id="success-msg"></div>
+</div>
+
+<script>
+// ── Configuration (generated by bundle_update.py) ─────────────────────────────
+const HASH_KEY_UPD = '__KEY__';
+const FLAGS = __FLAGS__;
+// ─────────────────────────────────────────────────────────────────────────────
+
+const FLAG_META = [
+  { key: 'TUNE_ACTIVE',   label: 'Melodi',           desc: 'Spela upp en välkomstmelodi vid upplåsning' },
+  { key: 'NFC_ACTIVE',    label: 'NFC',              desc: 'Acceptera NFC-tap via PN532-läsaren' },
+  { key: 'BLE_ACTIVE',    label: 'Bluetooth',        desc: 'Acceptera upplåsning via BLE' },
+  { key: 'PORTS_ACTIVE',  label: 'Portar',           desc: 'Styr elektromagnetiska lås via PWM' },
+  { key: 'NVS_ACTIVE',    label: 'Repelsskydd',      desc: 'Spara senaste tidsstämpel i flash' },
+  { key: 'WIFI_ACTIVE',   label: 'WiFi',             desc: 'Skicka öppningshändelser till kameror' },
+  { key: 'SERIAL_ACTIVE', label: 'Seriell scanner',  desc: 'Läs QR-koder från GM60-scanner via UART' },
+  { key: 'DEBUG',         label: 'Debug-läge',       desc: 'Utförlig loggning i seriell monitor' },
+];
+
+const SVC_UUID      = '6e400011-b5a3-f393-e0a9-e50e24dcca9e';
+const CHR_CHALLENGE = '6e400012-b5a3-f393-e0a9-e50e24dcca9e';
+const CHR_AUTH      = '6e400013-b5a3-f393-e0a9-e50e24dcca9e';
+const CHR_FILENAME  = '6e400014-b5a3-f393-e0a9-e50e24dcca9e';
+const CHR_DATA      = '6e400015-b5a3-f393-e0a9-e50e24dcca9e';
+const CHR_COMMIT    = '6e400016-b5a3-f393-e0a9-e50e24dcca9e';
+const CHR_STATUS    = '6e400017-b5a3-f393-e0a9-e50e24dcca9e';
+const CHUNK_SIZE    = 200;
+
+const ST_AUTH_OK   = 0x01;
+const ST_AUTH_FAIL = 0x02;
+const ST_FILE_OK   = 0x10;
+const ST_FILE_ERR  = 0x11;
+const ST_REBOOTING = 0x20;
+
+// ── Render toggles ────────────────────────────────────────────────────────────
+
+function renderToggles() {
+  const container = document.getElementById('settings');
+  container.innerHTML = FLAG_META.map(m => `
+    <div class="toggle-row">
+      <div class="toggle-info">
+        <div class="toggle-label">${m.label}</div>
+        <div class="toggle-desc">${m.desc}</div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="${m.key}" ${FLAGS[m.key] ? 'checked' : ''}>
+        <span class="slider"></span>
+      </label>
+    </div>
+  `).join('');
+}
+
+// ── UI helpers ────────────────────────────────────────────────────────────────
+
+function stepActive(id) {
+  document.getElementById('s-' + id).className = 'step active';
+  document.getElementById('i-' + id).innerHTML = '<div class="spinner"></div>';
+}
+function stepDone(id) {
+  document.getElementById('s-' + id).className = 'step done';
+  document.getElementById('i-' + id).textContent = '✓';
+}
+function stepError(id) {
+  document.getElementById('s-' + id).className = 'step error';
+  document.getElementById('i-' + id).textContent = '✕';
+}
+function showError(msg) {
+  const el = document.getElementById('error-msg');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+function showSuccess(msg) {
+  const el = document.getElementById('success-msg');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+// ── Status notification helper ────────────────────────────────────────────────
+
+function waitStatus(chrStatus, ms) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      chrStatus.removeEventListener('characteristicvaluechanged', handler);
+      reject(new Error(`Inget svar från enheten på ${ms / 1000}s`));
+    }, ms);
+    function handler(event) {
+      clearTimeout(timer);
+      chrStatus.removeEventListener('characteristicvaluechanged', handler);
+      resolve(new Uint8Array(event.target.value.buffer));
+    }
+    chrStatus.addEventListener('characteristicvaluechanged', handler);
+  });
+}
+
+// ── Crypto helpers ────────────────────────────────────────────────────────────
+
+function hexToBytes(hex) {
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < hex.length; i += 2)
+    out[i / 2] = parseInt(hex.slice(i, i + 2), 16);
+  return out;
+}
+
+async function computeHMAC(keyStr, messageStr) {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw', enc.encode(keyStr), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  );
+  return new Uint8Array(await crypto.subtle.sign('HMAC', key, enc.encode(messageStr)));
+}
+
+function bytesToHex(bytes) {
+  return Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function sha256(content) {
+  const bytes = new TextEncoder().encode(content);
+  const buf   = await crypto.subtle.digest('SHA-256', bytes);
+  return bytesToHex(new Uint8Array(buf));
+}
+
+// ── Build config.py from current toggle state ─────────────────────────────────
+
+function buildConfigPy() {
+  const vals = {};
+  FLAG_META.forEach(m => { vals[m.key] = document.getElementById(m.key).checked; });
+
+  const b = (v) => v ? 'True' : 'False';
+  return [
+    '############################',
+    '# date: ' + new Date().toISOString().slice(0, 10) + ' 00:00 #',
+    '',
+    'try:',
+    '\tfrom micropython import const',
+    'except Exception:  # not running on MicroPython (e.g. type checkers, editors)',
+    '\tdef const(x: bool) -> bool:  # fallback for CPython environment',
+    '\t\treturn x',
+    '',
+    `DEBUG: bool         = const(${b(vals.DEBUG)})   # Print verbose output to serial console`,
+    `WIFI_ACTIVE: bool   = const(${b(vals.WIFI_ACTIVE)})   # Send open-door events to cameras over TCP`,
+    `SERIAL_ACTIVE: bool = const(${b(vals.SERIAL_ACTIVE)})  # Read QR codes from the GM60 scanner via UART (False when PN532 NFC uses GPIO 16/17)`,
+    `PORTS_ACTIVE: bool  = const(${b(vals.PORTS_ACTIVE)})   # Drive electromagnetic locks via PWM output`,
+    `TUNE_ACTIVE: bool   = const(${b(vals.TUNE_ACTIVE)})  # Play an unlock melody on port 1 (uses the same PWM)`,
+    `NVS_ACTIVE: bool    = const(${b(vals.NVS_ACTIVE)})   # Store last-accepted timestamp in flash (replay protection)`,
+    `BLE_ACTIVE: bool    = const(${b(vals.BLE_ACTIVE)})   # Accept hands-free unlock via BLE challenge-response`,
+    `NFC_ACTIVE: bool    = const(${b(vals.NFC_ACTIVE)})   # Accept NFC tap via PN532 on GPIO 16 (SDA) / 17 (SCL)`,
+    '',
+  ].join('\n');
+}
+
+// ── Main flow ─────────────────────────────────────────────────────────────────
+
+document.getElementById('btn').addEventListener('click', async () => {
+  const btn = document.getElementById('btn');
+  btn.disabled = true;
+  document.getElementById('steps').style.display = 'block';
+  document.getElementById('error-msg').style.display   = 'none';
+  document.getElementById('success-msg').style.display = 'none';
+
+  let server;
+
+  try {
+    // Step 1: connect
+    stepActive('connect');
+    const device = await navigator.bluetooth.requestDevice({
+      acceptAllDevices: true,
+      optionalServices: [SVC_UUID],
+    });
+    server        = await device.gatt.connect();
+    const service = await server.getPrimaryService(SVC_UUID);
+    stepDone('connect');
+
+    // Step 2: authenticate
+    stepActive('auth');
+    const chrChallenge = await service.getCharacteristic(CHR_CHALLENGE);
+    const chrAuth      = await service.getCharacteristic(CHR_AUTH);
+    const chrStatus    = await service.getCharacteristic(CHR_STATUS);
+    await chrStatus.startNotifications();
+
+    await new Promise(r => setTimeout(r, 1500));
+    const nonceVal = await chrChallenge.readValue();
+    const nonce    = new Uint8Array(nonceVal.buffer);
+    if (nonce.length !== 16) throw new Error(`Oväntad nonce-längd: ${nonce.length}`);
+
+    const hmac = await computeHMAC(HASH_KEY_UPD, bytesToHex(nonce));
+    await chrAuth.writeValueWithResponse(hmac);
+
+    const authSt = await waitStatus(chrStatus, 5000);
+    if (authSt[0] !== ST_AUTH_OK) {
+      throw Object.assign(new Error('Autentisering misslyckades'), { _authFail: true });
+    }
+    stepDone('auth');
+
+    // Step 3: upload config.py
+    stepActive('upload');
+    const chrFilename = await service.getCharacteristic(CHR_FILENAME);
+    const chrData     = await service.getCharacteristic(CHR_DATA);
+    const chrCommit   = await service.getCharacteristic(CHR_COMMIT);
+    const enc         = new TextEncoder();
+
+    const content  = buildConfigPy();
+    const hash     = await sha256(content);
+    const bytes    = enc.encode(content);
+    const filename = 'config.py';
+
+    await chrFilename.writeValueWithResponse(enc.encode(filename));
+
+    for (let offset = 0; offset < bytes.length; offset += CHUNK_SIZE) {
+      await chrData.writeValueWithResponse(bytes.slice(offset, offset + CHUNK_SIZE));
+    }
+
+    const commitData = new Uint8Array(33);
+    commitData[0] = 0x03;  // CMD_REBOOT
+    commitData.set(hexToBytes(hash), 1);
+    await chrCommit.writeValueWithResponse(commitData);
+
+    const fileSt = await waitStatus(chrStatus, 15000);
+    if (fileSt[0] === ST_FILE_ERR) {
+      const reason = new TextDecoder().decode(fileSt.slice(1)).replace(/\x00/g, '');
+      throw new Error(`Inställningar kunde inte sparas${reason ? ': ' + reason : ''}`);
+    }
+    stepDone('upload');
+
+    // Step 4: rebooting
+    stepActive('done');
+    try { await waitStatus(chrStatus, 3000); } catch (_) {}
+    stepDone('done');
+    showSuccess('Inställningarna sparade!\nEnheten startar om.');
+
+  } catch (err) {
+    const steps  = ['connect', 'auth', 'upload', 'done'];
+    const active = steps.find(s => document.getElementById('s-' + s).classList.contains('active'));
+    if (active) stepError(active);
+
+    if (err.name === 'NotFoundError' || err.name === 'NotAllowedError') {
+      showError('Ingen enhet valdes. Tryck på "Spara inställningar" och välj ZipLink i listan.');
+    } else if (err._authFail) {
+      showError('Fel nyckel — kontrollera att nyckeln stämmer och försök igen.');
+    } else {
+      showError('Något gick fel: ' + err.message);
+    }
+
+    btn.disabled = false;
+    if (server?.connected) server.disconnect();
+  }
+});
+
+renderToggles();
+</script>
+</body>
+</html>

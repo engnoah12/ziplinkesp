@@ -37,6 +37,7 @@ UPD_CHR_AUTH: str      = const('6E400013-B5A3-F393-E0A9-E50E24DCCA9E')
 UPD_CHR_FILENAME: str  = const('6E400014-B5A3-F393-E0A9-E50E24DCCA9E')
 UPD_CHR_DATA: str      = const('6E400015-B5A3-F393-E0A9-E50E24DCCA9E')
 UPD_CHR_COMMIT: str    = const('6E400016-B5A3-F393-E0A9-E50E24DCCA9E')
+UPD_CHR_STATUS: str    = const('6E400017-B5A3-F393-E0A9-E50E24DCCA9E')
 
 UPD_AUTH_TIMEOUT_S: int  = const(15)   # Seconds to authenticate before disconnect
 UPD_SESSION_TIMEOUT_S: int = const(60) # Inactivity timeout during an open session
@@ -46,6 +47,7 @@ UPD_MAX_FILE_BYTES: int  = const(32768) # Largest file is esp32_elock.py ~24 KB
 # boot.py and key files are intentionally excluded.
 UPD_ALLOWED_FILES = (
     'main.py', 'esp32_elock.py', 'ble_elock.py', 'ble_updater.py',
+    'ble_nfc_writer.py', 'nfc_access.py', 'nfc_pn532.py',
     'config.py', 'consts.py', 'elock_hmac_sha256.py', 'testHASH.py',
     '_cfg_ble.py', '_cfg_network.py', '_cfg_serial.py', '_utils.py',
     '_crc_xmodem_table.py',

@@ -6,13 +6,16 @@ Usage:
     python3 bundle_update.py                     # alla filer i ALL_FILES
     python3 bundle_update.py config.py main.py   # bara angivna filer
     python3 bundle_update.py --admin             # genererar admin.html
+    python3 bundle_update.py --config            # genererar ziplink_config.html (config-editor)
 
 Reads:
   - ble_updater.html   (template)
+  - ble_config.html    (template för --config)
   - _key_upd.py        (HASH_KEY_UPD, krävs ej för --admin)
 
 Writes:
   - ziplink_update.html  (kundsida, redo att dela)
+  - ziplink_config.html  (inställningssida, genererad av --config)
   - admin.html           (adminpanel, endast vid --admin)
 """
 
@@ -35,14 +38,19 @@ ALL_FILES = [
     'testHASH.py',
     'ble_elock.py',
     'ble_updater.py',
+    'ble_nfc_writer.py',
+    'nfc_access.py',
+    'nfc_pn532.py',
     'esp32_elock.py',
     'main.py',
 ]
 
-TEMPLATE_FILE = 'ble_updater.html'
-OUTPUT_FILE   = 'ziplink_update.html'
-KEY_FILE      = '_key_upd.py'
-ADMIN_FILE    = 'admin.html'
+TEMPLATE_FILE        = 'ble_updater.html'
+OUTPUT_FILE          = 'ziplink_update.html'
+KEY_FILE             = '_key_upd.py'
+ADMIN_FILE           = 'admin.html'
+CONFIG_TEMPLATE_FILE = 'ble_config.html'
+CONFIG_OUTPUT_FILE   = 'ziplink_config.html'
 
 # ── Admin page generation ─────────────────────────────────────────────────────
 
@@ -334,12 +342,58 @@ def generate_customer(files_to_bundle):
     print(f"    Dela med kunder — öppna i Chrome (Android) eller Bluefy (iOS).")
 
 
+# ── Config-editor page generation ────────────────────────────────────────────
+
+def generate_config():
+    key_ns = {}
+    with open(KEY_FILE) as f:
+        exec(f.read(), key_ns)
+    key = key_ns.get('HASH_KEY_UPD', '')
+    if not key or key == 'REPLACE_BEFORE_DEPLOY':
+        print(f"[!] HASH_KEY_UPD i {KEY_FILE} är fortfarande platshållarvärdet.")
+        sys.exit(1)
+
+    cfg_ns = {}
+    try:
+        with open('config.py') as f:
+            exec(f.read(), cfg_ns)
+    except FileNotFoundError:
+        print("[!] config.py saknas")
+        sys.exit(1)
+
+    flags_val = {
+        'DEBUG':         bool(cfg_ns.get('DEBUG',         False)),
+        'WIFI_ACTIVE':   bool(cfg_ns.get('WIFI_ACTIVE',   False)),
+        'SERIAL_ACTIVE': bool(cfg_ns.get('SERIAL_ACTIVE', False)),
+        'PORTS_ACTIVE':  bool(cfg_ns.get('PORTS_ACTIVE',  True)),
+        'TUNE_ACTIVE':   bool(cfg_ns.get('TUNE_ACTIVE',   False)),
+        'NVS_ACTIVE':    bool(cfg_ns.get('NVS_ACTIVE',    True)),
+        'BLE_ACTIVE':    bool(cfg_ns.get('BLE_ACTIVE',    True)),
+        'NFC_ACTIVE':    bool(cfg_ns.get('NFC_ACTIVE',    False)),
+    }
+
+    with open(CONFIG_TEMPLATE_FILE, encoding='utf-8') as f:
+        html = f.read()
+
+    html = html.replace("'__KEY__'", json.dumps(key))
+    html = html.replace('__FLAGS__',  json.dumps(flags_val))
+
+    with open(CONFIG_OUTPUT_FILE, 'w', encoding='utf-8') as f:
+        f.write(html)
+
+    print(f"[+] {CONFIG_OUTPUT_FILE} genererad")
+    for k, v in flags_val.items():
+        print(f"    {k}: {v}")
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 args  = [a for a in sys.argv[1:] if not a.startswith('-')]
 flags = [a for a in sys.argv[1:] if a.startswith('-')]
 
-if '--admin' in flags:
+if '--config' in flags:
+    generate_config()
+elif '--admin' in flags:
     generate_admin()
 elif args:
     print(f"[*] Buntar {len(args)} angiven(a) fil(er):")

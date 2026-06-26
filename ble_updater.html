@@ -203,9 +203,16 @@ const CHR_AUTH      = '6e400013-b5a3-f393-e0a9-e50e24dcca9e';
 const CHR_FILENAME  = '6e400014-b5a3-f393-e0a9-e50e24dcca9e';
 const CHR_DATA      = '6e400015-b5a3-f393-e0a9-e50e24dcca9e';
 const CHR_COMMIT    = '6e400016-b5a3-f393-e0a9-e50e24dcca9e';
+const CHR_STATUS    = '6e400017-b5a3-f393-e0a9-e50e24dcca9e';
 const CHUNK_SIZE    = 200;
 const CMD_COMMIT    = new Uint8Array([0x01]);
 const CMD_REBOOT    = new Uint8Array([0x03]);
+
+const ST_AUTH_OK   = 0x01;
+const ST_AUTH_FAIL = 0x02;
+const ST_FILE_OK   = 0x10;
+const ST_FILE_ERR  = 0x11;
+const ST_REBOOTING = 0x20;
 
 // ── UI helpers ────────────────────────────────────────────────────────────────
 
@@ -234,6 +241,23 @@ function showSuccess(msg) {
   const el = document.getElementById('success-msg');
   el.textContent = msg;
   el.style.display = 'block';
+}
+
+// ── Status notification helper ────────────────────────────────────────────────
+
+function waitStatus(chrStatus, ms) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      chrStatus.removeEventListener('characteristicvaluechanged', handler);
+      reject(new Error(`Inget svar från enheten på ${ms / 1000}s`));
+    }, ms);
+    function handler(event) {
+      clearTimeout(timer);
+      chrStatus.removeEventListener('characteristicvaluechanged', handler);
+      resolve(new Uint8Array(event.target.value.buffer));
+    }
+    chrStatus.addEventListener('characteristicvaluechanged', handler);
+  });
 }
 
 // ── Crypto helpers (Web Crypto API) ──────────────────────────────────────────
@@ -286,6 +310,8 @@ document.getElementById('btn').addEventListener('click', async () => {
     stepActive('auth');
     const chrChallenge = await service.getCharacteristic(CHR_CHALLENGE);
     const chrAuth      = await service.getCharacteristic(CHR_AUTH);
+    const chrStatus    = await service.getCharacteristic(CHR_STATUS);
+    await chrStatus.startNotifications();
 
     // Give ESP32 500 ms to generate and write the nonce before we read it
     await new Promise(r => setTimeout(r, 1500));
@@ -295,8 +321,12 @@ document.getElementById('btn').addEventListener('click', async () => {
 
     const hmac = await computeHMAC(HASH_KEY_UPD, bytesToHex(nonce));
     await chrAuth.writeValueWithResponse(hmac);
-    // Give ESP32 time to verify before we start sending files
-    await new Promise(r => setTimeout(r, 500));
+
+    // Wait for ESP32 to confirm auth result via STATUS notification
+    const authSt = await waitStatus(chrStatus, 5000);
+    if (authSt[0] !== ST_AUTH_OK) {
+      throw Object.assign(new Error('Autentisering misslyckades'), { _authFail: true });
+    }
     stepDone('auth');
 
     // Step 3: upload files
@@ -332,16 +362,28 @@ document.getElementById('btn').addEventListener('click', async () => {
       commitData[0] = isLast ? 0x03 : 0x01;
       commitData.set(hexToBytes(FILES[i].sha256), 1);
       await chrCommit.writeValueWithResponse(commitData);
-      await new Promise(r => setTimeout(r, 300));
+
+      // Wait for ESP32 to confirm the file was written
+      const fileSt = await waitStatus(chrStatus, 15000);
+      if (fileSt[0] === ST_FILE_ERR) {
+        const reason = new TextDecoder().decode(fileSt.slice(1)).replace(/\x00/g, '');
+        throw new Error(`Fil kunde inte skrivas (${name})${reason ? ': ' + reason : ''}`);
+      } else if (fileSt[0] !== ST_FILE_OK && fileSt[0] !== ST_REBOOTING) {
+        throw new Error(`Oväntat svar efter commit av ${name}: 0x${fileSt[0].toString(16)}`);
+      }
     }
 
     setProgress(100);
     document.getElementById('upload-label').textContent = 'Filer uppladdade';
     stepDone('upload');
 
-    // Step 4: rebooting (connection will drop naturally)
+    // Step 4: wait for reboot notification then show success
     stepActive('done');
-    await new Promise(r => setTimeout(r, 2000));
+    try {
+      await waitStatus(chrStatus, 3000);  // expect ST_REBOOTING
+    } catch (_) {
+      // timeout is fine — ESP32 may have rebooted before notification arrived
+    }
     stepDone('done');
     showSuccess('Uppdateringen är klar!\nEnheten startar om med ny programvara.');
 
@@ -355,6 +397,8 @@ document.getElementById('btn').addEventListener('click', async () => {
 
     if (err.name === 'NotFoundError' || err.name === 'NotAllowedError') {
       showError('Ingen enhet valdes. Tryck på "Starta uppdatering" och välj ZipLink i listan.');
+    } else if (err._authFail) {
+      showError('Fel nyckel — kontrollera att nyckeln stämmer och försök igen.');
     } else if (err.message?.includes('nonce')) {
       showError('Kunde inte läsa utmaningsvärde från enheten. Försök igen.');
     } else {

@@ -36,7 +36,7 @@ from micropython import const
 
 from _cfg_ble import (
     UPD_SVC_UUID, UPD_CHR_CHALLENGE, UPD_CHR_AUTH,
-    UPD_CHR_FILENAME, UPD_CHR_DATA, UPD_CHR_COMMIT,
+    UPD_CHR_FILENAME, UPD_CHR_DATA, UPD_CHR_COMMIT, UPD_CHR_STATUS,
     UPD_AUTH_TIMEOUT_S, UPD_SESSION_TIMEOUT_S,
     UPD_MAX_FILE_BYTES, UPD_ALLOWED_FILES,
 )
@@ -52,6 +52,13 @@ _HMAC_LEN  = const(32)  # Full SHA-256 digest — not truncated like the lock se
 _CMD_COMMIT = const(0x01)
 _CMD_ABORT  = const(0x02)
 _CMD_REBOOT = const(0x03)
+
+# Status codes sent to the phone via UPD_STATUS notifications
+_ST_AUTH_OK   = const(0x01)
+_ST_AUTH_FAIL = const(0x02)
+_ST_FILE_OK   = const(0x10)
+_ST_FILE_ERR  = const(0x11)
+_ST_REBOOTING = const(0x20)
 
 
 def _ct_eq(a, b):
@@ -74,6 +81,7 @@ class BLEUpdater:
             (bluetooth.UUID(UPD_CHR_FILENAME),  _FLAG_WRITE),
             (bluetooth.UUID(UPD_CHR_DATA),      _FLAG_WRITE),
             (bluetooth.UUID(UPD_CHR_COMMIT),    _FLAG_WRITE),
+            (bluetooth.UUID(UPD_CHR_STATUS),    _FLAG_NOTIFY),
         ),
     )
 
@@ -103,16 +111,18 @@ class BLEUpdater:
         self._h_filename  = None
         self._h_data      = None
         self._h_commit    = None
+        self._h_status    = None
         # Tuple of write handles so BLELock can route IRQ writes here
         self._handles     = ()
 
-    def set_handles(self, ble, h_challenge, h_auth, h_filename, h_data, h_commit):
+    def set_handles(self, ble, h_challenge, h_auth, h_filename, h_data, h_commit, h_status):
         self._ble         = ble
         self._h_challenge = h_challenge
         self._h_auth      = h_auth
         self._h_filename  = h_filename
         self._h_data      = h_data
         self._h_commit    = h_commit
+        self._h_status    = h_status
         self._handles     = (h_auth, h_filename, h_data, h_commit)
         # Pre-allocate attribute buffers so incoming writes are not silently truncated
         ble.gatts_write(h_auth,     bytes(_HMAC_LEN))
@@ -120,6 +130,13 @@ class BLEUpdater:
         ble.gatts_write(h_data,     bytes(200))
         ble.gatts_write(h_commit,   bytes(33))  # cmd (1) + SHA256 (32)
         dbg("UPD: handles set")
+
+    def _notify_status(self, code, msg=b''):
+        if self._conn is None or self._h_status is None:
+            return
+        if isinstance(msg, str):
+            msg = msg.encode('ascii', 'replace')
+        self._ble.gatts_notify(self._conn, self._h_status, bytes([code]) + msg[:63])
 
     # ── IRQ callbacks ─────────────────────────────────────────────────────────
     # Called from BLELock._irq — must be fast, no allocation beyond bytearray.extend().
@@ -160,6 +177,10 @@ class BLEUpdater:
             self._auth_flag.set()
         elif value_handle == self._h_filename:
             self._filename_data = self._ble.gatts_read(self._h_filename)
+            # Reset buffer here in IRQ — before Write Response reaches the phone,
+            # so no data chunks can arrive before the buffer is cleared.
+            self._buf      = bytearray()
+            self._overflow = False
             self._write_flag.set()
         elif value_handle == self._h_commit:
             data = self._ble.gatts_read(self._h_commit)
@@ -196,6 +217,8 @@ class BLEUpdater:
             self._auth_data = None
             if not self._verify_auth(auth_data):
                 red("UPD: auth failed")
+                self._notify_status(_ST_AUTH_FAIL)
+                await asyncio.sleep_ms(200)
                 if self._conn is not None:
                     self._ble.gap_disconnect(self._conn)
                 continue
@@ -205,6 +228,7 @@ class BLEUpdater:
             self._filename_data = None
             self._commit_cmd    = None
             self._commit_hash   = None
+            self._notify_status(_ST_AUTH_OK)
             green("UPD: authenticated")
 
             # Phase 2: session loop — filename → data chunks → commit
@@ -226,8 +250,6 @@ class BLEUpdater:
                     try:
                         name = raw.rstrip(b'\x00').decode('ascii')
                         self._filename = name
-                        self._buf      = bytearray()
-                        self._overflow = False
                         dbg(f"UPD: filename={name}")
                     except Exception:
                         red("UPD: invalid filename encoding")
@@ -246,10 +268,18 @@ class BLEUpdater:
                         red("UPD: session aborted by phone")
                         break
                     elif cmd == _CMD_COMMIT:
-                        self._do_commit(cmd)
+                        if self._do_commit():
+                            self._notify_status(_ST_FILE_OK)
                         # Stay in session — phone may send more files
                     elif cmd == _CMD_REBOOT:
-                        self._do_commit(cmd)
+                        ok = self._do_commit()
+                        if ok:
+                            self._notify_status(_ST_FILE_OK)
+                            await asyncio.sleep_ms(100)
+                            self._notify_status(_ST_REBOOTING)
+                            await asyncio.sleep_ms(300)
+                            import machine
+                            machine.reset()
                         break
 
             self._authed   = False
@@ -277,28 +307,33 @@ class BLEUpdater:
             red(f"UPD: auth error {e}")
             return False
 
-    def _do_commit(self, cmd):
+    def _do_commit(self):
         if self._overflow:
             red(f"UPD: file exceeds {UPD_MAX_FILE_BYTES}b limit, aborting")
-            return
+            self._notify_status(_ST_FILE_ERR, b'overflow')
+            return False
         if not self._filename:
             red("UPD: no filename set before commit")
-            return
+            self._notify_status(_ST_FILE_ERR, b'no filename')
+            return False
         if self._filename not in UPD_ALLOWED_FILES:
             red(f"UPD: '{self._filename}' not in allowed-files whitelist")
-            return
+            self._notify_status(_ST_FILE_ERR, b'not allowed')
+            return False
 
         tmp = self._filename + '.tmp'
 
         # Step 0: verify SHA256 before touching the filesystem
         if self._commit_hash is None:
             red("UPD: commit missing SHA256 hash, aborting")
-            return
+            self._notify_status(_ST_FILE_ERR, b'no hash')
+            return False
         import hashlib
         if hashlib.sha256(self._buf).digest() != self._commit_hash:
             red("UPD: SHA256 mismatch, aborting")
+            self._notify_status(_ST_FILE_ERR, b'sha256')
             del hashlib
-            return
+            return False
         green("UPD: SHA256 OK")
         del hashlib
 
@@ -310,19 +345,22 @@ class BLEUpdater:
             red(f"UPD: tmp write failed: {e}")
             try: os.remove(tmp)
             except: pass
-            return
+            self._notify_status(_ST_FILE_ERR, b'write')
+            return False
 
         # Step 2: verify .tmp size matches buffer (catches partial flash writes)
         try:
             if os.stat(tmp)[6] != len(self._buf):
                 red("UPD: size mismatch after write, aborting")
                 os.remove(tmp)
-                return
+                self._notify_status(_ST_FILE_ERR, b'verify')
+                return False
         except Exception as e:
             red(f"UPD: verify failed: {e}")
             try: os.remove(tmp)
             except: pass
-            return
+            self._notify_status(_ST_FILE_ERR, b'verify')
+            return False
 
         # Step 3: backup original, then atomic swap
         try:
@@ -335,18 +373,11 @@ class BLEUpdater:
             red(f"UPD: rename failed: {e}")
             try: os.rename(self._filename + '.bak', self._filename)
             except: pass
-            return
+            self._notify_status(_ST_FILE_ERR, b'rename')
+            return False
 
         green(f"UPD: committed {len(self._buf)}b → {self._filename}")
         self._buf      = bytearray()
         self._filename = None
         gc.collect()
-
-        if cmd == _CMD_REBOOT:
-            green("UPD: rebooting")
-            try:
-                os.remove('boot_ok.flag')
-            except OSError:
-                pass
-            import machine
-            machine.reset()
+        return True
