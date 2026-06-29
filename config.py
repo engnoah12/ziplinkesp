@@ -15,3 +15,5 @@ TUNE_ACTIVE: bool   = const(False)  # Play an unlock melody on port 1 (uses the 
 NVS_ACTIVE: bool    = const(True)   # Store last-accepted timestamp in flash (replay protection)
 BLE_ACTIVE: bool    = const(True)   # Accept hands-free unlock via BLE challenge-response
 NFC_ACTIVE: bool    = const(True)   # Accept NFC tap via PN532 on GPIO 16 (SDA) / 17 (SCL)
+BLE_UNLOCK: bool    = const(True)   # Allow BLE to unlock (BLE stack stays up for OTA even if False)
+NFC_UNLOCK: bool    = const(True)   # Allow NFC to unlock (NFC reader stays up for card programming even if False)

@@ -370,6 +370,8 @@ def generate_config():
         'NVS_ACTIVE':    bool(cfg_ns.get('NVS_ACTIVE',    True)),
         'BLE_ACTIVE':    bool(cfg_ns.get('BLE_ACTIVE',    True)),
         'NFC_ACTIVE':    bool(cfg_ns.get('NFC_ACTIVE',    False)),
+        'BLE_UNLOCK':    bool(cfg_ns.get('BLE_UNLOCK',    True)),
+        'NFC_UNLOCK':    bool(cfg_ns.get('NFC_UNLOCK',    True)),
     }
 
     with open(CONFIG_TEMPLATE_FILE, encoding='utf-8') as f:

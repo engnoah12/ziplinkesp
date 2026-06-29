@@ -27,7 +27,7 @@ from _cfg_serial import (
 )
 from _cfg_network import NET_SSID, NET_PASSWD, NET_HIDDEN
 from _utils import TAIL, WRITEZ, blue, dbg, green, red, tb, ROK,free
-from config import BLE_ACTIVE, NFC_ACTIVE, NVS_ACTIVE, PORTS_ACTIVE, SERIAL_ACTIVE, TUNE_ACTIVE, WIFI_ACTIVE
+from config import BLE_ACTIVE, NFC_ACTIVE, NVS_ACTIVE, PORTS_ACTIVE, SERIAL_ACTIVE, TUNE_ACTIVE, WIFI_ACTIVE, BLE_UNLOCK, NFC_UNLOCK
 from micropython import const
 
 #########################################
@@ -716,8 +716,9 @@ if BLE_ACTIVE:
             await _ble_lock.unlock_flag.wait()
             ports = _ble_lock.unlock_ports[:]
             _ble_lock.unlock_ports.clear()
-            loop.create_task(gmBlink(0b010, HOLD_BLINK_TIME_MS, True))
-            loop.create_task(tuneandUnlock(ports))
+            if BLE_UNLOCK:
+                loop.create_task(gmBlink(0b010, HOLD_BLINK_TIME_MS, True))
+                loop.create_task(tuneandUnlock(ports))
 
     loop.create_task(_ble_monitor())
 
@@ -757,8 +758,9 @@ if NFC_ACTIVE:
                     if uid != _last_uid:
                         _last_uid = uid
                         green(f"NFC: access granted ports={result['ports']}")
-                        loop.create_task(gmBlink(0b010, HOLD_BLINK_TIME_MS, True))
-                        loop.create_task(tuneandUnlock(result['ports']))
+                        if NFC_UNLOCK:
+                            loop.create_task(gmBlink(0b010, HOLD_BLINK_TIME_MS, True))
+                            loop.create_task(tuneandUnlock(result['ports']))
                 elif not result:
                     _last_uid = None
                 gc.collect()
